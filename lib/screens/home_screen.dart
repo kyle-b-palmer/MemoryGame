@@ -3,6 +3,9 @@ import 'dart:math' as math;
 import '../widgets/game_card.dart';
 import '../models/game_type.dart';
 import 'missing_number_game.dart';
+import 'sequence_recall_game.dart';
+import 'pattern_match_game.dart';
+import 'speed_numbers_game.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -64,13 +67,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         screen = const MissingNumberGame();
         break;
       case GameType.sequenceRecall:
-        screen = _buildComingSoonScreen('Sequence Recall');
+        screen = const SequenceRecallGame();
         break;
       case GameType.patternMatch:
-        screen = _buildComingSoonScreen('Pattern Match');
+        screen = const PatternMatchGame();
         break;
       case GameType.speedNumbers:
-        screen = _buildComingSoonScreen('Speed Numbers');
+        screen = const SpeedNumbersGame();
         break;
     }
 

@@ -63,11 +63,10 @@ extension GameTypeExtension on GameType {
   bool get isAvailable {
     switch (this) {
       case GameType.missingNumber:
-        return true;
       case GameType.sequenceRecall:
       case GameType.patternMatch:
       case GameType.speedNumbers:
-        return false;
+        return true;
     }
   }
 }

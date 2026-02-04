@@ -4,79 +4,62 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
-class MissingNumberGame extends StatefulWidget {
-  const MissingNumberGame({super.key});
+class PatternMatchGame extends StatefulWidget {
+  const PatternMatchGame({super.key});
 
   @override
-  State<MissingNumberGame> createState() => _MissingNumberGameState();
+  State<PatternMatchGame> createState() => _PatternMatchGameState();
 }
 
-class _MissingNumberGameState extends State<MissingNumberGame>
+class _PatternMatchGameState extends State<PatternMatchGame>
     with TickerProviderStateMixin {
-  // Game state
   GamePhase _phase = GamePhase.ready;
   int _level = 1;
   int _score = 0;
   int _highScore = 0;
-  int _consecutiveFailures = 0;
   
-  // Number display settings
-  int _totalNumbers = 5;
-  int _missingCount = 1;
-  double _displayDuration = 3.0;
+  int _gridSize = 3;
+  int _filledCount = 3;
+  double _displayDuration = 2.5;
   
   // Custom game settings
   bool _isCustomGame = false;
-  int _customTotalNumbers = 5;
-  int _customMissingCount = 1;
-  double _customDisplayDuration = 3.0;
+  int _customGridSize = 3;
+  int _customFilledCount = 3;
+  double _customDisplayDuration = 2.5;
   
-  // Current round data
-  List<int> _displayedNumbers = [];
-  List<int> _missingNumbers = [];
-  List<int> _playerGuesses = [];
-  String _inputValue = '';
+  List<List<bool>> _filledGrid = [];
+  List<List<bool>> _selectedGrid = [];
+  Set<String> _filledPositions = {};
+  Set<String> _selectedPositions = {};
+  bool _answerSubmitted = false;
   
-  // Timers and controllers
   Timer? _displayTimer;
   Timer? _countdownTimer;
   double _timeRemaining = 0;
   
-  // Animation controllers
-  late AnimationController _numberFlashController;
+  late AnimationController _flashController;
   late AnimationController _resultController;
-  late Animation<double> _numberFadeAnimation;
-  late Animation<double> _numberScaleAnimation;
-  
-  // Focus node for input
-  final FocusNode _inputFocusNode = FocusNode();
-  final TextEditingController _textController = TextEditingController();
+  late Animation<double> _flashAnimation;
 
   @override
   void initState() {
     super.initState();
     _loadProgress();
-    _numberFlashController = AnimationController(
+    _flashController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 500),
-    );
+      duration: const Duration(milliseconds: 300),
+    )..repeat(reverse: true);
     
     _resultController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
     );
     
-    _numberFadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+    _flashAnimation = Tween<double>(begin: 0.3, end: 1.0).animate(
       CurvedAnimation(
-        parent: _numberFlashController,
-        curve: Curves.easeOut,
-      ),
-    );
-    
-    _numberScaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _numberFlashController,
-        curve: Curves.elasticOut,
+        parent: _flashController,
+        curve: Curves.easeInOut,
       ),
     );
   }
@@ -85,47 +68,35 @@ class _MissingNumberGameState extends State<MissingNumberGame>
   void dispose() {
     _displayTimer?.cancel();
     _countdownTimer?.cancel();
-    _numberFlashController.dispose();
+    _flashController.dispose();
     _resultController.dispose();
-    _inputFocusNode.dispose();
-    _textController.dispose();
     super.dispose();
   }
 
   Future<void> _loadProgress() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _level = prefs.getInt('saved_level') ?? 1;
-      _highScore = prefs.getInt('high_score') ?? 0;
-      _totalNumbers = prefs.getInt('total_numbers') ?? 5;
-      _missingCount = prefs.getInt('missing_count') ?? 1;
-      _displayDuration = prefs.getDouble('display_duration') ?? 3.0;
+      _level = prefs.getInt('pattern_level') ?? 1;
+      _highScore = prefs.getInt('pattern_high_score') ?? 0;
+      _gridSize = prefs.getInt('pattern_grid_size') ?? 3;
+      _filledCount = prefs.getInt('pattern_filled_count') ?? 3;
+      _displayDuration = prefs.getDouble('pattern_duration') ?? 2.5;
     });
-    _applyDifficultySettings();
   }
 
   Future<void> _saveProgress() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('saved_level', _level);
-    await prefs.setInt('high_score', _highScore);
-    await prefs.setInt('total_numbers', _totalNumbers);
-    await prefs.setInt('missing_count', _missingCount);
-    await prefs.setDouble('display_duration', _displayDuration);
-  }
-
-  void _applyDifficultySettings() {
-    // Ensure difficulty settings are valid based on level
-    if (_totalNumbers < 5) _totalNumbers = 5;
-    if (_missingCount < 1) _missingCount = 1;
-    if (_displayDuration < 1.0) _displayDuration = 1.0;
-    if (_displayDuration > 3.0) _displayDuration = 3.0;
+    await prefs.setInt('pattern_level', _level);
+    await prefs.setInt('pattern_high_score', _highScore);
+    await prefs.setInt('pattern_grid_size', _gridSize);
+    await prefs.setInt('pattern_filled_count', _filledCount);
+    await prefs.setDouble('pattern_duration', _displayDuration);
   }
 
   void _startGame() {
     setState(() {
       _phase = GamePhase.ready;
       _score = 0;
-      _consecutiveFailures = 0;
       _isCustomGame = false;
     });
     _startRound();
@@ -135,33 +106,29 @@ class _MissingNumberGameState extends State<MissingNumberGame>
     setState(() {
       _phase = GamePhase.customSettings;
       _score = 0;
-      _consecutiveFailures = 0;
       _isCustomGame = true;
-      _totalNumbers = _customTotalNumbers;
-      _missingCount = _customMissingCount;
+      _gridSize = _customGridSize;
+      _filledCount = _customFilledCount;
       _displayDuration = _customDisplayDuration;
     });
   }
 
   void _startRound() {
-    _generateNumbers();
+    _generatePattern();
     setState(() {
-      _phase = GamePhase.nextRound;
-      _playerGuesses = [];
-      _inputValue = '';
+      _phase = GamePhase.preview;
+      _selectedGrid = List.generate(_gridSize, (_) => List.generate(_gridSize, (_) => false));
+      _selectedPositions.clear();
+      _answerSubmitted = false; // Reset feedback flag
     });
-    _textController.clear();
   }
 
-  void _proceedToShowing() {
+  void _startShowing() {
     setState(() {
       _phase = GamePhase.showing;
       _timeRemaining = _displayDuration;
     });
     
-    _numberFlashController.forward(from: 0);
-    
-    // Countdown timer
     _countdownTimer?.cancel();
     _countdownTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
       setState(() {
@@ -173,76 +140,51 @@ class _MissingNumberGameState extends State<MissingNumberGame>
       });
     });
     
-    // Display timer
     _displayTimer?.cancel();
     _displayTimer = Timer(Duration(milliseconds: (_displayDuration * 1000).toInt()), () {
       _countdownTimer?.cancel();
+      _flashController.stop();
       setState(() {
         _phase = GamePhase.guessing;
       });
-      _inputFocusNode.requestFocus();
     });
   }
 
-  void _generateNumbers() {
+  void _generatePattern() {
     final random = math.Random();
+    _filledGrid = List.generate(_gridSize, (_) => List.generate(_gridSize, (_) => false));
+    _filledPositions.clear();
     
-    // Generate all numbers from 1 to _totalNumbers, then shuffle
-    // This ensures all numbers are within the range
-    List<int> fullSequence = List.generate(_totalNumbers, (index) => index + 1);
-    
-    // Shuffle to randomize order (makes it harder to spot missing ones)
-    fullSequence.shuffle(random);
-    
-    // Pick random numbers to hide
-    _missingNumbers = fullSequence.take(_missingCount).toList();
-    _missingNumbers.sort(); // Sort missing numbers for easier checking
-    
-    // Create displayed numbers (full sequence minus missing)
-    // Keep the shuffled order - don't sort!
-    _displayedNumbers = List.from(fullSequence)
-      ..removeWhere((n) => _missingNumbers.contains(n));
-  }
-
-  void _submitGuess() {
-    if (_inputValue.isEmpty) return;
-    
-    final guess = int.tryParse(_inputValue);
-    if (guess == null) {
-      _textController.clear();
-      setState(() => _inputValue = '');
-      return;
-    }
-    
-    setState(() {
-      if (!_playerGuesses.contains(guess)) {
-        _playerGuesses.add(guess);
+    // Randomly fill squares
+    int filled = 0;
+    while (filled < _filledCount) {
+      int row = random.nextInt(_gridSize);
+      int col = random.nextInt(_gridSize);
+      
+      if (!_filledGrid[row][col]) {
+        _filledGrid[row][col] = true;
+        _filledPositions.add('$row,$col');
+        filled++;
       }
-      _inputValue = '';
-    });
-    _textController.clear();
-    
-    // Auto-focus the input field again if more guesses are needed
-    if (_playerGuesses.length < _missingCount) {
-      Future.delayed(const Duration(milliseconds: 50), () {
-        _inputFocusNode.requestFocus();
-      });
     }
   }
 
-  void _deleteGuess(int guess) {
+  void _onCellTapped(int row, int col) {
+    if (_phase != GamePhase.guessing) return;
+    
     setState(() {
-      _playerGuesses.remove(guess);
-    });
-    // Auto-focus the input field after deletion
-    Future.delayed(const Duration(milliseconds: 50), () {
-      _inputFocusNode.requestFocus();
+      _selectedGrid[row][col] = !_selectedGrid[row][col];
+      String pos = '$row,$col';
+      if (_selectedGrid[row][col]) {
+        _selectedPositions.add(pos);
+      } else {
+        _selectedPositions.remove(pos);
+      }
     });
   }
 
   void _submitAnswer() {
     if (_phase != GamePhase.guessing) return;
-    if (_playerGuesses.length < _missingCount) return;
     _checkAnswer();
   }
 
@@ -250,81 +192,61 @@ class _MissingNumberGameState extends State<MissingNumberGame>
     _displayTimer?.cancel();
     _countdownTimer?.cancel();
     
-    // Sort both lists for comparison
-    final sortedGuesses = List<int>.from(_playerGuesses)..sort();
-    final sortedMissing = List<int>.from(_missingNumbers)..sort();
-    
-    bool isCorrect = sortedGuesses.length == sortedMissing.length &&
-        sortedGuesses.every((g) => sortedMissing.contains(g));
+    bool isCorrect = _selectedPositions.length == _filledPositions.length &&
+        _selectedPositions.every((pos) => _filledPositions.contains(pos));
     
     setState(() {
-      _phase = isCorrect ? GamePhase.correct : GamePhase.incorrect;
+      _answerSubmitted = true; // Show feedback on grid
       if (isCorrect) {
-        _score += (_level * 10) + (_displayDuration * 5).toInt();
+        _score += (_level * 20) + (_gridSize * _gridSize * 5);
         if (_score > _highScore) {
           _highScore = _score;
         }
-        _consecutiveFailures = 0; // Reset failures on success
+        _phase = GamePhase.correct; // Move to correct phase
       } else {
-        _consecutiveFailures++;
-        // If failed twice in a row, reduce difficulty
-        if (_consecutiveFailures >= 2) {
-          _reduceDifficulty();
-          _consecutiveFailures = 0; // Reset after reducing difficulty
+        // Keep in guessing phase to show grid with feedback
+        _phase = GamePhase.guessing;
+      }
+    });
+    
+    if (isCorrect) {
+      // Only show result screen for correct answers
+      _resultController.forward(from: 0);
+      Future.delayed(const Duration(milliseconds: 1500), () {
+        if (!_isCustomGame) {
+          _levelUp();
+        } else {
+          // In custom game, just increment level for display but keep settings the same
+          _level++;
+          // Reset to custom settings to maintain difficulty
+          _gridSize = _customGridSize;
+          _filledCount = _customFilledCount;
+          _displayDuration = _customDisplayDuration;
         }
-      }
-    });
-    
-    _resultController.forward(from: 0);
-    
-    // Move to next round
-    Future.delayed(const Duration(milliseconds: 1500), () {
-      if (isCorrect) {
-        _levelUp();
-      }
-      _startRound();
-    });
+        _startRound();
+      });
+    } else {
+      // Show feedback on grid for 3 seconds, then restart round
+      // Phase stays as guessing so grid remains visible
+      Future.delayed(const Duration(milliseconds: 3000), () {
+        _startRound();
+      });
+    }
   }
 
   void _levelUp() {
     _level++;
     
-    // Increase difficulty every few levels
-    if (_level % 3 == 0 && _totalNumbers < 15) {
-      _totalNumbers++;
+    if (_level % 3 == 0 && _gridSize < 6) {
+      _gridSize++;
     }
     
-    if (_level % 5 == 0 && _missingCount < 3) {
-      _missingCount++;
+    if (_level % 2 == 0 && _filledCount < _gridSize * _gridSize - 2) {
+      _filledCount++;
     }
     
-    // Decrease display time (minimum 1 second)
     if (_level % 2 == 0 && _displayDuration > 1.0) {
       _displayDuration -= 0.2;
-    }
-    
-    _saveProgress();
-  }
-
-  void _reduceDifficulty() {
-    // Reduce total numbers (minimum 5)
-    if (_totalNumbers > 5) {
-      _totalNumbers--;
-    }
-    
-    // Reduce missing count (minimum 1)
-    if (_missingCount > 1) {
-      _missingCount--;
-    }
-    
-    // Increase display time (maximum 3.0 seconds)
-    if (_displayDuration < 3.0) {
-      _displayDuration += 0.2;
-    }
-    
-    // Reduce level if possible (minimum 1)
-    if (_level > 1) {
-      _level--;
     }
     
     _saveProgress();
@@ -349,9 +271,7 @@ class _MissingNumberGameState extends State<MissingNumberGame>
           child: Column(
             children: [
               _buildHeader(),
-              Expanded(
-                child: _buildGameContent(),
-              ),
+              Expanded(child: _buildGameContent()),
             ],
           ),
         ),
@@ -374,7 +294,7 @@ class _MissingNumberGameState extends State<MissingNumberGame>
               children: [
                 _buildStatChip(Icons.star_rounded, '$_score', const Color(0xFFFDCB6E)),
                 const SizedBox(width: 12),
-                _buildStatChip(Icons.trending_up_rounded, 'Lv.$_level', const Color(0xFF6C5CE7)),
+                _buildStatChip(Icons.trending_up_rounded, 'Lv.$_level', const Color(0xFFE17055)),
               ],
             ),
           ),
@@ -416,8 +336,8 @@ class _MissingNumberGameState extends State<MissingNumberGame>
         return _buildReadyScreen();
       case GamePhase.customSettings:
         return _buildCustomSettingsScreen();
-      case GamePhase.nextRound:
-        return _buildNextRoundScreen();
+      case GamePhase.preview:
+        return _buildPreviewScreen();
       case GamePhase.showing:
         return _buildShowingScreen();
       case GamePhase.guessing:
@@ -444,25 +364,25 @@ class _MissingNumberGameState extends State<MissingNumberGame>
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: const LinearGradient(
-                  colors: [Color(0xFF6C5CE7), Color(0xFFA29BFE)],
+                  colors: [Color(0xFFE17055), Color(0xFFFAB1A0)],
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF6C5CE7).withOpacity(0.4),
+                    color: const Color(0xFFE17055).withOpacity(0.4),
                     blurRadius: 30,
                     spreadRadius: 5,
                   ),
                 ],
               ),
               child: const Icon(
-                Icons.question_mark_rounded,
+                Icons.grid_view_rounded,
                 size: 60,
                 color: Colors.white,
               ),
             ),
             const SizedBox(height: 32),
             Text(
-              'Missing Number',
+              'Pattern Match',
               style: Theme.of(context).textTheme.headlineLarge?.copyWith(
                 color: Colors.white,
               ),
@@ -479,38 +399,21 @@ class _MissingNumberGameState extends State<MissingNumberGame>
                 children: [
                   _buildInstructionRow(
                     Icons.visibility_rounded,
-                    'Watch the sequence of numbers flash on screen',
+                    'Watch as squares flash and fill in',
                   ),
                   const SizedBox(height: 12),
                   _buildInstructionRow(
-                    Icons.search_rounded,
-                    'Find the missing number(s) in the sequence',
+                    Icons.memory_rounded,
+                    'Remember which squares were filled',
                   ),
                   const SizedBox(height: 12),
                   _buildInstructionRow(
-                    Icons.speed_rounded,
-                    'Be quick! Time decreases as you level up',
+                    Icons.touch_app_rounded,
+                    'Tap the squares that were filled in',
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 24),
-            if (_level > 1)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF6C5CE7).withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFF6C5CE7).withOpacity(0.4)),
-                ),
-                child: Text(
-                  'Resuming from Level $_level',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: const Color(0xFFA29BFE),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
             const SizedBox(height: 24),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -521,12 +424,12 @@ class _MissingNumberGameState extends State<MissingNumberGame>
                     padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
                     decoration: BoxDecoration(
                       gradient: const LinearGradient(
-                        colors: [Color(0xFF6C5CE7), Color(0xFFA29BFE)],
+                        colors: [Color(0xFFE17055), Color(0xFFFAB1A0)],
                       ),
                       borderRadius: BorderRadius.circular(30),
                       boxShadow: [
                         BoxShadow(
-                          color: const Color(0xFF6C5CE7).withOpacity(0.4),
+                          color: const Color(0xFFE17055).withOpacity(0.4),
                           blurRadius: 20,
                           offset: const Offset(0, 8),
                         ),
@@ -550,12 +453,12 @@ class _MissingNumberGameState extends State<MissingNumberGame>
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(30),
-                      border: Border.all(color: const Color(0xFF6C5CE7).withOpacity(0.5)),
+                      border: Border.all(color: const Color(0xFFE17055).withOpacity(0.5)),
                     ),
                     child: Text(
                       'CUSTOM',
                       style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        color: const Color(0xFFA29BFE),
+                        color: const Color(0xFFFAB1A0),
                         letterSpacing: 2,
                         fontSize: 18,
                       ),
@@ -567,6 +470,23 @@ class _MissingNumberGameState extends State<MissingNumberGame>
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildInstructionRow(IconData icon, String text) {
+    return Row(
+      children: [
+        Icon(icon, color: const Color(0xFFFAB1A0), size: 24),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            text,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Colors.white70,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -594,19 +514,28 @@ class _MissingNumberGameState extends State<MissingNumberGame>
               child: Column(
                 children: [
                   _buildSettingRow(
-                    'Total Numbers',
-                    _customTotalNumbers,
-                    (val) => setState(() => _customTotalNumbers = val),
-                    3,
-                    15,
+                    'Grid Size',
+                    _customGridSize,
+                    (val) => setState(() {
+                      _customGridSize = val;
+                      // Adjust filled count if needed
+                      if (_customFilledCount > _customGridSize * _customGridSize - 2) {
+                        _customFilledCount = (_customGridSize * _customGridSize - 2).clamp(1, 10);
+                      }
+                    }),
+                    3.0,
+                    6.0,
                   ),
                   const SizedBox(height: 24),
                   _buildSettingRow(
-                    'Missing Numbers',
-                    _customMissingCount,
-                    (val) => setState(() => _customMissingCount = val),
-                    1,
-                    5,
+                    'Filled Squares',
+                    _customFilledCount,
+                    (val) => setState(() {
+                      final maxFilled = (_customGridSize * _customGridSize - 2).clamp(1, 10);
+                      _customFilledCount = (val as int).clamp(1, maxFilled);
+                    }),
+                    1.0,
+                    (_customGridSize * _customGridSize - 2).toDouble().clamp(1.0, 10.0),
                   ),
                   const SizedBox(height: 24),
                   _buildSettingRow(
@@ -625,8 +554,8 @@ class _MissingNumberGameState extends State<MissingNumberGame>
               autofocus: true,
               onKeyEvent: (node, event) {
                 if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.enter) {
-                  _totalNumbers = _customTotalNumbers;
-                  _missingCount = _customMissingCount;
+                  _gridSize = _customGridSize;
+                  _filledCount = _customFilledCount;
                   _displayDuration = _customDisplayDuration;
                   _startRound();
                   return KeyEventResult.handled;
@@ -635,8 +564,8 @@ class _MissingNumberGameState extends State<MissingNumberGame>
               },
               child: GestureDetector(
                 onTap: () {
-                  _totalNumbers = _customTotalNumbers;
-                  _missingCount = _customMissingCount;
+                  _gridSize = _customGridSize;
+                  _filledCount = _customFilledCount;
                   _displayDuration = _customDisplayDuration;
                   _startRound();
                 },
@@ -644,12 +573,12 @@ class _MissingNumberGameState extends State<MissingNumberGame>
                   padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
-                      colors: [Color(0xFF6C5CE7), Color(0xFFA29BFE)],
+                      colors: [Color(0xFFE17055), Color(0xFFFAB1A0)],
                     ),
                     borderRadius: BorderRadius.circular(30),
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFF6C5CE7).withOpacity(0.4),
+                        color: const Color(0xFFE17055).withOpacity(0.4),
                         blurRadius: 20,
                         offset: const Offset(0, 8),
                       ),
@@ -692,14 +621,14 @@ class _MissingNumberGameState extends State<MissingNumberGame>
                   if (value > min) onChanged((value as int) - 1);
                 }
               },
-              icon: const Icon(Icons.remove_circle, color: Color(0xFFA29BFE)),
+              icon: const Icon(Icons.remove_circle, color: Color(0xFFFAB1A0)),
             ),
             Expanded(
               child: Text(
                 isDouble ? (value as double).toStringAsFixed(1) : value.toString(),
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  color: const Color(0xFFA29BFE),
+                  color: const Color(0xFFFAB1A0),
                 ),
               ),
             ),
@@ -711,7 +640,7 @@ class _MissingNumberGameState extends State<MissingNumberGame>
                   if (value < max) onChanged((value as int) + 1);
                 }
               },
-              icon: const Icon(Icons.add_circle, color: Color(0xFFA29BFE)),
+              icon: const Icon(Icons.add_circle, color: Color(0xFFFAB1A0)),
             ),
           ],
         ),
@@ -719,7 +648,7 @@ class _MissingNumberGameState extends State<MissingNumberGame>
     );
   }
 
-  Widget _buildNextRoundScreen() {
+  Widget _buildPreviewScreen() {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32.0),
@@ -732,32 +661,32 @@ class _MissingNumberGameState extends State<MissingNumberGame>
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: const LinearGradient(
-                  colors: [Color(0xFF6C5CE7), Color(0xFFA29BFE)],
+                  colors: [Color(0xFFE17055), Color(0xFFFAB1A0)],
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF6C5CE7).withOpacity(0.4),
+                    color: const Color(0xFFE17055).withOpacity(0.4),
                     blurRadius: 30,
                     spreadRadius: 5,
                   ),
                 ],
               ),
               child: const Icon(
-                Icons.play_arrow_rounded,
+                Icons.info_outline_rounded,
                 size: 60,
                 color: Colors.white,
               ),
             ),
             const SizedBox(height: 32),
             Text(
-              'Round ${_level}',
+              'Round ${_level > 1 ? _level : 1}',
               style: Theme.of(context).textTheme.headlineLarge?.copyWith(
                 color: Colors.white,
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 24),
             Container(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
                 color: Colors.white.withOpacity(0.05),
                 borderRadius: BorderRadius.circular(16),
@@ -765,9 +694,9 @@ class _MissingNumberGameState extends State<MissingNumberGame>
               ),
               child: Column(
                 children: [
-                  _buildPreviewRow(Icons.numbers_rounded, 'Total Numbers', '$_totalNumbers'),
+                  _buildPreviewRow(Icons.grid_view_rounded, 'Grid Size', '${_gridSize}x$_gridSize'),
                   const SizedBox(height: 12),
-                  _buildPreviewRow(Icons.remove_circle_outline_rounded, 'Missing Count', '$_missingCount'),
+                  _buildPreviewRow(Icons.check_box_rounded, 'Filled Squares', '$_filledCount'),
                   const SizedBox(height: 12),
                   _buildPreviewRow(Icons.speed_rounded, 'Display Time', '${_displayDuration.toStringAsFixed(1)}s'),
                 ],
@@ -778,30 +707,30 @@ class _MissingNumberGameState extends State<MissingNumberGame>
               autofocus: true,
               onKeyEvent: (node, event) {
                 if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.enter) {
-                  _proceedToShowing();
+                  _startShowing();
                   return KeyEventResult.handled;
                 }
                 return KeyEventResult.ignored;
               },
               child: GestureDetector(
-                onTap: _proceedToShowing,
+                onTap: _startShowing,
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
-                      colors: [Color(0xFF6C5CE7), Color(0xFFA29BFE)],
+                      colors: [Color(0xFFE17055), Color(0xFFFAB1A0)],
                     ),
                     borderRadius: BorderRadius.circular(30),
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFF6C5CE7).withOpacity(0.4),
+                        color: const Color(0xFFE17055).withOpacity(0.4),
                         blurRadius: 20,
                         offset: const Offset(0, 8),
                       ),
                     ],
                   ),
                   child: Text(
-                    'START ROUND',
+                    'OK',
                     style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                       color: Colors.white,
                       letterSpacing: 2,
@@ -822,7 +751,7 @@ class _MissingNumberGameState extends State<MissingNumberGame>
       children: [
         Row(
           children: [
-            Icon(icon, color: const Color(0xFFA29BFE), size: 24),
+            Icon(icon, color: const Color(0xFFFAB1A0), size: 24),
             const SizedBox(width: 12),
             Text(
               label,
@@ -835,25 +764,8 @@ class _MissingNumberGameState extends State<MissingNumberGame>
         Text(
           value,
           style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-            color: const Color(0xFFA29BFE),
+            color: const Color(0xFFFAB1A0),
             fontWeight: FontWeight.bold,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildInstructionRow(IconData icon, String text) {
-    return Row(
-      children: [
-        Icon(icon, color: const Color(0xFFA29BFE), size: 24),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            text,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Colors.white70,
-            ),
           ),
         ),
       ],
@@ -863,31 +775,29 @@ class _MissingNumberGameState extends State<MissingNumberGame>
   Widget _buildShowingScreen() {
     return Column(
       children: [
-        // Info bar showing total numbers expected
         Container(
           margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           decoration: BoxDecoration(
-            color: const Color(0xFF6C5CE7).withOpacity(0.2),
+            color: const Color(0xFFE17055).withOpacity(0.2),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFF6C5CE7).withOpacity(0.4)),
+            border: Border.all(color: const Color(0xFFE17055).withOpacity(0.4)),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.info_outline_rounded, color: Color(0xFFA29BFE), size: 20),
+              const Icon(Icons.info_outline_rounded, color: Color(0xFFFAB1A0), size: 20),
               const SizedBox(width: 8),
               Text(
-                'Total: $_totalNumbers numbers • Find $_missingCount missing',
+                'Grid: ${_gridSize}x$_gridSize • Filled: $_filledCount',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: const Color(0xFFA29BFE),
+                  color: const Color(0xFFFAB1A0),
                   fontWeight: FontWeight.w600,
                 ),
               ),
             ],
           ),
         ),
-        // Timer
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
           child: Column(
@@ -905,7 +815,7 @@ class _MissingNumberGameState extends State<MissingNumberGame>
                   Text(
                     '${_timeRemaining.toStringAsFixed(1)}s',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: _timeRemaining < 1 ? Colors.red : Colors.white70,
+                      color: _timeRemaining < 0.5 ? Colors.red : Colors.white70,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -918,7 +828,7 @@ class _MissingNumberGameState extends State<MissingNumberGame>
                   value: _timeRemaining / _displayDuration,
                   backgroundColor: Colors.white10,
                   valueColor: AlwaysStoppedAnimation(
-                    _timeRemaining < 1 ? Colors.red : const Color(0xFF6C5CE7),
+                    _timeRemaining < 0.5 ? Colors.red : const Color(0xFFE17055),
                   ),
                   minHeight: 8,
                 ),
@@ -926,23 +836,31 @@ class _MissingNumberGameState extends State<MissingNumberGame>
             ],
           ),
         ),
-        // Numbers display
         Expanded(
           child: Center(
-            child: FadeTransition(
-              opacity: _numberFadeAnimation,
-              child: ScaleTransition(
-                scale: _numberScaleAnimation,
-                child: Padding(
-                  padding: const EdgeInsets.all(24.0),
-                  child: Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    alignment: WrapAlignment.center,
-                    children: _displayedNumbers.map((number) {
-                      return _buildNumberTile(number);
-                    }).toList(),
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Container(
+                width: _gridSize * 70.0,
+                height: _gridSize * 70.0,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.white.withOpacity(0.1)),
+                ),
+                child: GridView.builder(
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: _gridSize,
+                    crossAxisSpacing: 4,
+                    mainAxisSpacing: 4,
                   ),
+                  itemCount: _gridSize * _gridSize,
+                  itemBuilder: (context, index) {
+                    final row = index ~/ _gridSize;
+                    final col = index % _gridSize;
+                    return _buildFilledCell(row, col, true);
+                  },
                 ),
               ),
             ),
@@ -952,228 +870,276 @@ class _MissingNumberGameState extends State<MissingNumberGame>
     );
   }
 
-  Widget _buildNumberTile(int number, {bool isGuess = false, bool isCorrect = false}) {
-    Color bgColor;
-    Color textColor;
-    Color borderColor;
+  Widget _buildFilledCell(int row, int col, bool isShowing) {
+    final isFilled = _filledGrid[row][col];
     
-    if (isGuess) {
-      if (isCorrect) {
-        bgColor = const Color(0xFF00B894).withOpacity(0.2);
-        textColor = const Color(0xFF55EFC4);
-        borderColor = const Color(0xFF00B894);
+    if (isShowing) {
+      // During showing phase - animate filled cells
+      if (isFilled) {
+        return AnimatedBuilder(
+          animation: _flashAnimation,
+          builder: (context, child) {
+            return Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    const Color(0xFFE17055).withOpacity(_flashAnimation.value),
+                    const Color(0xFFFAB1A0).withOpacity(_flashAnimation.value),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(8),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFFE17055).withOpacity(_flashAnimation.value * 0.5),
+                    blurRadius: 10,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+            );
+          },
+        );
       } else {
-        bgColor = const Color(0xFFFF6B6B).withOpacity(0.2);
-        textColor = const Color(0xFFFF6B6B);
-        borderColor = const Color(0xFFFF6B6B);
+        return Container(
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: Colors.white.withOpacity(0.1),
+              width: 1,
+            ),
+          ),
+        );
       }
     } else {
-      bgColor = const Color(0xFF6C5CE7).withOpacity(0.15);
-      textColor = Colors.white;
-      borderColor = const Color(0xFF6C5CE7).withOpacity(0.5);
-    }
-    
-    return Container(
-      width: 64,
-      height: 64,
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: borderColor, width: 2),
-      ),
-      child: Center(
-        child: Text(
-          '$number',
-          style: TextStyle(
-            color: textColor,
-            fontSize: 28,
-            fontWeight: FontWeight.bold,
+      // During guessing phase - show selection state
+      final isSelected = _selectedGrid[row][col];
+      final shouldBeFilled = _filledGrid[row][col];
+      
+      Color cellColor;
+      Color borderColor;
+      double opacity;
+      IconData? icon;
+      
+      // Only show correct/incorrect colors after submission
+      if (_answerSubmitted) {
+        if (isSelected && shouldBeFilled) {
+          // Correct selection - green
+          cellColor = const Color(0xFF00B894);
+          borderColor = const Color(0xFF55EFC4);
+          opacity = 0.8;
+          icon = Icons.check_circle;
+        } else if (isSelected && !shouldBeFilled) {
+          // Wrong selection - red
+          cellColor = const Color(0xFFFF6B6B);
+          borderColor = const Color(0xFFFF6B6B);
+          opacity = 0.6;
+          icon = Icons.cancel;
+        } else if (!isSelected && shouldBeFilled) {
+          // Should have been selected but wasn't - show correct pattern in green (lighter)
+          cellColor = const Color(0xFF00B894);
+          borderColor = const Color(0xFF55EFC4);
+          opacity = 0.4;
+          icon = Icons.check_circle_outline;
+        } else {
+          // Not selected and shouldn't be - neutral
+          cellColor = Colors.white;
+          borderColor = Colors.white.withOpacity(0.2);
+          opacity = 0.05;
+        }
+      } else if (isSelected) {
+        // Selected but not yet submitted - show neutral selection
+        cellColor = const Color(0xFFFDCB6E);
+        borderColor = const Color(0xFFFDCB6E);
+        opacity = 0.4;
+      } else {
+        cellColor = Colors.white;
+        borderColor = Colors.white.withOpacity(0.2);
+        opacity = 0.05;
+      }
+      
+      return Container(
+        decoration: BoxDecoration(
+          color: cellColor.withOpacity(opacity),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: borderColor,
+            width: (isSelected || (_answerSubmitted && shouldBeFilled)) ? 3 : 1,
           ),
         ),
-      ),
-    );
+        child: icon != null
+            ? Center(
+                child: Icon(
+                  icon,
+                  color: borderColor,
+                  size: 24,
+                ),
+              )
+            : null,
+      );
+    }
   }
 
   Widget _buildGuessingScreen() {
+    final showFeedback = _answerSubmitted;
+    // Calculate correctness based on current selections
+    final isCorrect = showFeedback && 
+        _selectedPositions.length == _filledPositions.length &&
+        _selectedPositions.every((pos) => _filledPositions.contains(pos));
+    
     return Column(
       children: [
-        // Info bar
         Container(
-          margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+          margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           decoration: BoxDecoration(
-            color: const Color(0xFFFDCB6E).withOpacity(0.2),
+            color: showFeedback
+                ? (isCorrect 
+                    ? const Color(0xFF00B894).withOpacity(0.2)
+                    : const Color(0xFFFF6B6B).withOpacity(0.2))
+                : const Color(0xFFFDCB6E).withOpacity(0.2),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFFFDCB6E).withOpacity(0.4)),
+            border: Border.all(
+              color: showFeedback
+                  ? (isCorrect 
+                      ? const Color(0xFF00B894).withOpacity(0.4)
+                      : const Color(0xFFFF6B6B).withOpacity(0.4))
+                  : const Color(0xFFFDCB6E).withOpacity(0.4),
+            ),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.lightbulb_outline_rounded, color: Color(0xFFFDCB6E), size: 20),
+              Icon(
+                showFeedback
+                    ? (isCorrect ? Icons.check_circle : Icons.cancel)
+                    : Icons.lightbulb_outline_rounded,
+                color: showFeedback
+                    ? (isCorrect ? const Color(0xFF00B894) : const Color(0xFFFF6B6B))
+                    : const Color(0xFFFDCB6E),
+                size: 20,
+              ),
               const SizedBox(width: 8),
               Text(
-                'Total: $_totalNumbers numbers • Enter $_missingCount missing number${_missingCount > 1 ? 's' : ''}',
+                showFeedback
+                    ? (isCorrect 
+                        ? 'Correct! Green = right, Red = wrong'
+                        : 'Incorrect! Green = correct pattern, Red = wrong selections')
+                    : 'Tap the squares that were filled • Selected: ${_selectedPositions.length}/$_filledCount',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: const Color(0xFFFDCB6E),
+                  color: showFeedback
+                      ? (isCorrect ? const Color(0xFF00B894) : const Color(0xFFFF6B6B))
+                      : const Color(0xFFFDCB6E),
                   fontWeight: FontWeight.w600,
                 ),
+                textAlign: TextAlign.center,
               ),
             ],
           ),
         ),
         const SizedBox(height: 16),
-        // Question prompt
         Text(
-          'What ${_missingCount > 1 ? 'are' : 'is'} the missing number${_missingCount > 1 ? 's' : ''}?',
+          showFeedback
+              ? (isCorrect ? 'Perfect!' : 'Try Again!')
+              : 'Which squares were filled?',
           style: Theme.of(context).textTheme.headlineMedium?.copyWith(
             color: Colors.white,
           ),
         ),
-        const SizedBox(height: 8),
-        Text(
-          '${_playerGuesses.length}/$_missingCount entered',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: Colors.white54,
-          ),
-        ),
         const SizedBox(height: 24),
-        // Current guesses
-        if (_playerGuesses.isNotEmpty)
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: _playerGuesses.map((guess) {
-              return GestureDetector(
-                onTap: () => _deleteGuess(guess),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF6C5CE7).withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: const Color(0xFF6C5CE7)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        '$guess',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              // Calculate cell size to fit within available space
+              // Account for padding (24 * 2 = 48) and spacing between cells
+              final availableWidth = constraints.maxWidth - 48 - (_gridSize - 1) * 4;
+              final availableHeight = constraints.maxHeight - 16;
+              final cellSize = ((availableWidth < availableHeight 
+                  ? availableWidth 
+                  : availableHeight) / _gridSize).clamp(30.0, 100.0);
+              
+              return Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Center(
+                  child: Container(
+                    width: cellSize * _gridSize + (_gridSize - 1) * 4,
+                    height: cellSize * _gridSize + (_gridSize - 1) * 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.white.withOpacity(0.1)),
+                    ),
+                    child: GridView.builder(
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: _gridSize,
+                        crossAxisSpacing: 4,
+                        mainAxisSpacing: 4,
                       ),
-                      const SizedBox(width: 8),
-                      Icon(
-                        Icons.close_rounded,
-                        size: 18,
-                        color: Colors.white.withOpacity(0.7),
-                      ),
-                    ],
+                      itemCount: _gridSize * _gridSize,
+                      itemBuilder: (context, index) {
+                        final row = index ~/ _gridSize;
+                        final col = index % _gridSize;
+                        return GestureDetector(
+                          onTap: showFeedback ? null : () => _onCellTapped(row, col),
+                          child: _buildFilledCell(row, col, false),
+                        );
+                      },
+                    ),
                   ),
                 ),
               );
-            }).toList(),
-          ),
-        const SizedBox(height: 32),
-        // Input field
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 48),
-          child: TextField(
-            controller: _textController,
-            focusNode: _inputFocusNode,
-            autofocus: true,
-            keyboardType: TextInputType.number,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 32,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 4,
-            ),
-            inputFormatters: [
-              FilteringTextInputFormatter.digitsOnly,
-              LengthLimitingTextInputFormatter(3),
-            ],
-            decoration: InputDecoration(
-              hintText: '?',
-              hintStyle: TextStyle(
-                color: Colors.white.withOpacity(0.3),
-                fontSize: 32,
-              ),
-              filled: true,
-              fillColor: Colors.white.withOpacity(0.05),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: Colors.white.withOpacity(0.2)),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: Colors.white.withOpacity(0.2)),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: const BorderSide(color: Color(0xFF6C5CE7), width: 2),
-              ),
-            ),
-            onChanged: (value) {
-              setState(() => _inputValue = value);
-            },
-            onSubmitted: (_) {
-              _submitGuess();
-              // If all guesses entered, auto-submit
-              if (_playerGuesses.length >= _missingCount) {
-                _submitAnswer();
-              }
             },
           ),
         ),
-        const SizedBox(height: 24),
-        // Submit button
-        Focus(
-          onKeyEvent: (node, event) {
-            if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.enter) {
-              if (_playerGuesses.length >= _missingCount) {
+        if (!showFeedback) ...[
+          const SizedBox(height: 16),
+          Focus(
+            autofocus: true,
+            onKeyEvent: (node, event) {
+              if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.enter) {
                 _submitAnswer();
                 return KeyEventResult.handled;
-              } else if (_inputValue.isNotEmpty) {
-                _submitGuess();
-                return KeyEventResult.handled;
               }
-            }
-            return KeyEventResult.ignored;
-          },
-          child: GestureDetector(
-            onTap: () {
-              if (_playerGuesses.length >= _missingCount) {
-                _submitAnswer();
-              } else if (_inputValue.isNotEmpty) {
-                _submitGuess();
-              }
+              return KeyEventResult.ignored;
             },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
-              decoration: BoxDecoration(
-                gradient: (_playerGuesses.length >= _missingCount || _inputValue.isNotEmpty)
-                    ? const LinearGradient(
-                        colors: [Color(0xFF6C5CE7), Color(0xFFA29BFE)],
-                      )
-                    : null,
-                color: (_playerGuesses.length < _missingCount && _inputValue.isEmpty) ? Colors.white10 : null,
-                borderRadius: BorderRadius.circular(30),
-              ),
-              child: Text(
-                _playerGuesses.length < _missingCount ? 'ADD NUMBER' : 'SUBMIT',
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  color: (_playerGuesses.length >= _missingCount || _inputValue.isNotEmpty) ? Colors.white : Colors.white30,
-                  letterSpacing: 2,
-                  fontSize: 18,
+            child: GestureDetector(
+              onTap: _submitAnswer,
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
+                decoration: BoxDecoration(
+                  gradient: _selectedPositions.isNotEmpty
+                      ? const LinearGradient(
+                          colors: [Color(0xFFE17055), Color(0xFFFAB1A0)],
+                        )
+                      : null,
+                  color: _selectedPositions.isEmpty ? Colors.white10 : null,
+                  borderRadius: BorderRadius.circular(30),
+                  boxShadow: _selectedPositions.isNotEmpty
+                      ? [
+                          BoxShadow(
+                            color: const Color(0xFFE17055).withOpacity(0.4),
+                            blurRadius: 20,
+                            offset: const Offset(0, 8),
+                          ),
+                        ]
+                      : [],
+                ),
+                child: Text(
+                  'SUBMIT',
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    color: _selectedPositions.isNotEmpty ? Colors.white : Colors.white30,
+                    letterSpacing: 2,
+                  ),
+                  textAlign: TextAlign.center,
                 ),
               ),
             ),
           ),
-        ),
-        const Spacer(),
+        ],
       ],
     );
   }
@@ -1185,10 +1151,7 @@ class _MissingNumberGameState extends State<MissingNumberGame>
         duration: const Duration(milliseconds: 600),
         curve: Curves.elasticOut,
         builder: (context, value, child) {
-          return Transform.scale(
-            scale: value,
-            child: child,
-          );
+          return Transform.scale(scale: value, child: child);
         },
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -1220,22 +1183,15 @@ class _MissingNumberGameState extends State<MissingNumberGame>
             ),
             const SizedBox(height: 24),
             Text(
-              isCorrect ? 'Correct!' : 'Wrong!',
+              isCorrect ? 'Perfect!' : 'Try Again!',
               style: Theme.of(context).textTheme.headlineLarge?.copyWith(
                 color: isCorrect ? const Color(0xFF55EFC4) : const Color(0xFFFF6B6B),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Missing: ${_missingNumbers.join(", ")}',
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                color: Colors.white70,
               ),
             ),
             if (isCorrect) ...[
               const SizedBox(height: 8),
               Text(
-                '+${(_level * 10) + (_displayDuration * 5).toInt()} points',
+                '+${(_level * 20) + (_gridSize * _gridSize * 5)} points',
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                   color: const Color(0xFFFDCB6E),
                   fontWeight: FontWeight.bold,
@@ -1288,9 +1244,9 @@ class _MissingNumberGameState extends State<MissingNumberGame>
                 children: [
                   _buildScoreRow('Final Score', '$_score', const Color(0xFFFDCB6E)),
                   const SizedBox(height: 12),
-                  _buildScoreRow('Level Reached', '$_level', const Color(0xFF6C5CE7)),
+                  _buildScoreRow('Level Reached', '$_level', const Color(0xFFE17055)),
                   const SizedBox(height: 12),
-                  _buildScoreRow('High Score', '$_highScore', const Color(0xFF55EFC4)),
+                  _buildScoreRow('High Score', '$_highScore', const Color(0xFFFAB1A0)),
                 ],
               ),
             ),
@@ -1301,12 +1257,12 @@ class _MissingNumberGameState extends State<MissingNumberGame>
                 padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
-                    colors: [Color(0xFF6C5CE7), Color(0xFFA29BFE)],
+                    colors: [Color(0xFFE17055), Color(0xFFFAB1A0)],
                   ),
                   borderRadius: BorderRadius.circular(30),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF6C5CE7).withOpacity(0.4),
+                      color: const Color(0xFFE17055).withOpacity(0.4),
                       blurRadius: 20,
                       offset: const Offset(0, 8),
                     ),
@@ -1362,11 +1318,10 @@ class _MissingNumberGameState extends State<MissingNumberGame>
 enum GamePhase {
   ready,
   customSettings,
-  nextRound,
+  preview,
   showing,
   guessing,
   correct,
   incorrect,
   gameOver,
 }
-
