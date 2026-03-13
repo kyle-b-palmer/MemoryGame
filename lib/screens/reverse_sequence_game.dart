@@ -4,14 +4,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
-class SequenceRecallGame extends StatefulWidget {
-  const SequenceRecallGame({super.key});
+class ReverseSequenceGame extends StatefulWidget {
+  const ReverseSequenceGame({super.key});
 
   @override
-  State<SequenceRecallGame> createState() => _SequenceRecallGameState();
+  State<ReverseSequenceGame> createState() => _ReverseSequenceGameState();
 }
 
-class _SequenceRecallGameState extends State<SequenceRecallGame>
+class _ReverseSequenceGameState extends State<ReverseSequenceGame>
     with TickerProviderStateMixin {
   GamePhase _phase = GamePhase.ready;
   int _level = 1;
@@ -81,19 +81,19 @@ class _SequenceRecallGameState extends State<SequenceRecallGame>
   Future<void> _loadProgress() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _level = prefs.getInt('seq_recall_level') ?? 1;
-      _highScore = prefs.getInt('seq_recall_high_score') ?? 0;
-      _sequenceLength = prefs.getInt('seq_recall_length') ?? 3;
-      _displayDuration = prefs.getDouble('seq_recall_duration') ?? 2.0;
+      _level = prefs.getInt('reverse_seq_level') ?? 1;
+      _highScore = prefs.getInt('reverse_seq_high_score') ?? 0;
+      _sequenceLength = prefs.getInt('reverse_seq_length') ?? 3;
+      _displayDuration = prefs.getDouble('reverse_seq_duration') ?? 2.0;
     });
   }
 
   Future<void> _saveProgress() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('seq_recall_level', _level);
-    await prefs.setInt('seq_recall_high_score', _highScore);
-    await prefs.setInt('seq_recall_length', _sequenceLength);
-    await prefs.setDouble('seq_recall_duration', _displayDuration);
+    await prefs.setInt('reverse_seq_level', _level);
+    await prefs.setInt('reverse_seq_high_score', _highScore);
+    await prefs.setInt('reverse_seq_length', _sequenceLength);
+    await prefs.setDouble('reverse_seq_duration', _displayDuration);
   }
 
   void _startGame() {
@@ -159,11 +159,9 @@ class _SequenceRecallGameState extends State<SequenceRecallGame>
 
   void _generateSequence() {
     final random = math.Random();
-    // Generate random numbers (not in linear order)
     _sequence = [];
     while (_sequence.length < _sequenceLength) {
       int num = random.nextInt(9) + 1;
-      // Allow duplicates but ensure randomness
       _sequence.add(num);
     }
   }
@@ -202,7 +200,6 @@ class _SequenceRecallGameState extends State<SequenceRecallGame>
       _currentInputIndex = index;
     });
     
-    // Auto-focus next field
     if (index < _sequenceLength - 1) {
       _focusNodes[index + 1].requestFocus();
     }
@@ -218,8 +215,10 @@ class _SequenceRecallGameState extends State<SequenceRecallGame>
     _displayTimer?.cancel();
     _countdownTimer?.cancel();
     
-    bool isCorrect = _playerInput.length == _sequence.length &&
-        _playerInput.asMap().entries.every((entry) => entry.value == _sequence[entry.key]);
+    // Check if player input matches reversed sequence
+    final reversedSequence = _sequence.reversed.toList();
+    bool isCorrect = _playerInput.length == reversedSequence.length &&
+        _playerInput.asMap().entries.every((entry) => entry.value == reversedSequence[entry.key]);
     
     setState(() {
       if (!isCorrect && !_isCustomGame) {
@@ -234,7 +233,7 @@ class _SequenceRecallGameState extends State<SequenceRecallGame>
       }
       
       if (isCorrect) {
-        _score += (_level * 15) + (_sequenceLength * 10);
+        _score += (_level * 30) + (_sequenceLength * 10);
         if (_score > _highScore) {
           _highScore = _score;
         }
@@ -247,8 +246,14 @@ class _SequenceRecallGameState extends State<SequenceRecallGame>
     
     Future.delayed(const Duration(milliseconds: 1500), () {
       if (mounted && _phase != GamePhase.gameOver) {
-        if (isCorrect && !_isCustomGame) {
-          _levelUp();
+        if (isCorrect) {
+          if (!_isCustomGame) {
+            _levelUp();
+          } else {
+            _level++;
+            _sequenceLength = _customSequenceLength;
+            _displayDuration = _customDisplayDuration;
+          }
         }
         if (mounted) _startRound();
       }
@@ -256,13 +261,15 @@ class _SequenceRecallGameState extends State<SequenceRecallGame>
   }
 
   void _levelUp() {
+    if (_isCustomGame) return;
+    
     _level++;
     
     if (_level % 2 == 0 && _sequenceLength < 8) {
       _sequenceLength++;
     }
     
-    if (_level % 3 == 0 && _displayDuration > 0.8) {
+    if (_level % 3 == 0 && _displayDuration > 1.0) {
       _displayDuration -= 0.2;
     }
     
@@ -287,7 +294,38 @@ class _SequenceRecallGameState extends State<SequenceRecallGame>
         child: SafeArea(
           child: Column(
             children: [
-              _buildHeader(),
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white70),
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _buildStatChip(Icons.star_rounded, '$_score', const Color(0xFFFDCB6E)),
+                        const SizedBox(width: 12),
+                        _buildStatChip(Icons.trending_up_rounded, 'Lv.$_level', const Color(0xFF00B894)),
+                        if (!_isCustomGame) ...[
+                          const SizedBox(width: 12),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: List.generate(3, (index) => Icon(
+                              index < _lives ? Icons.favorite : Icons.favorite_border,
+                              color: Colors.redAccent,
+                              size: 20,
+                            )),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(width: 48),
+                  ],
+                ),
+              ),
               Expanded(child: _buildGameContent()),
             ],
           ),
@@ -296,57 +334,21 @@ class _SequenceRecallGameState extends State<SequenceRecallGame>
     );
   }
 
-  Widget _buildHeader() {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Row(
-        children: [
-          IconButton(
-            onPressed: () => Navigator.pop(context),
-            icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white70),
-          ),
-          Expanded(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _buildStatChip(Icons.star_rounded, '$_score', const Color(0xFFFDCB6E)),
-                const SizedBox(width: 12),
-                _buildStatChip(Icons.trending_up_rounded, 'Lv.$_level', const Color(0xFF00B894)),
-                if (!_isCustomGame) ...[
-                  const SizedBox(width: 12),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: List.generate(3, (index) => Icon(
-                      index < _lives ? Icons.favorite : Icons.favorite_border,
-                      color: Colors.redAccent,
-                      size: 20,
-                    )),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(width: 48),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatChip(IconData icon, String value, Color color) {
+  Widget _buildStatChip(IconData icon, String text, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
+        color: color.withOpacity(0.2),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: color.withOpacity(0.4)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: color, size: 18),
-          const SizedBox(width: 4),
+          Icon(icon, color: color, size: 16),
+          const SizedBox(width: 6),
           Text(
-            value,
+            text,
             style: TextStyle(
               color: color,
               fontWeight: FontWeight.bold,
@@ -392,25 +394,25 @@ class _SequenceRecallGameState extends State<SequenceRecallGame>
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: const LinearGradient(
-                  colors: [Color(0xFF00B894), Color(0xFF55EFC4)],
+                  colors: [Color(0xFFA29BFE), Color(0xFF6C5CE7)],
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF00B894).withOpacity(0.4),
+                    color: const Color(0xFFA29BFE).withOpacity(0.4),
                     blurRadius: 30,
                     spreadRadius: 5,
                   ),
                 ],
               ),
               child: const Icon(
-                Icons.format_list_numbered_rounded,
+                Icons.swap_horiz_rounded,
                 size: 60,
                 color: Colors.white,
               ),
             ),
             const SizedBox(height: 32),
             Text(
-              'Sequence Recall',
+              'Reverse Sequence',
               style: Theme.of(context).textTheme.headlineLarge?.copyWith(
                 color: Colors.white,
               ),
@@ -431,73 +433,83 @@ class _SequenceRecallGameState extends State<SequenceRecallGame>
                   ),
                   const SizedBox(height: 12),
                   _buildInstructionRow(
-                    Icons.memory_rounded,
-                    'Remember the exact order',
+                    Icons.swap_horiz_rounded,
+                    'Enter the sequence in REVERSE order',
                   ),
                   const SizedBox(height: 12),
                   _buildInstructionRow(
-                    Icons.edit_rounded,
-                    'Reproduce the sequence in order',
+                    Icons.speed_rounded,
+                    'Time decreases as you level up',
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                GestureDetector(
-                  onTap: _startGame,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF00B894), Color(0xFF55EFC4)],
-                      ),
-                      borderRadius: BorderRadius.circular(30),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFF00B894).withOpacity(0.4),
-                          blurRadius: 20,
-                          offset: const Offset(0, 8),
-                        ),
-                      ],
+            const SizedBox(height: 40),
+            GestureDetector(
+              onTap: _startGame,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFA29BFE), Color(0xFF6C5CE7)],
+                  ),
+                  borderRadius: BorderRadius.circular(30),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFFA29BFE).withOpacity(0.4),
+                      blurRadius: 20,
+                      offset: const Offset(0, 8),
                     ),
-                    child: Text(
-                      'START',
-                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        color: Colors.white,
-                        letterSpacing: 2,
-                        fontSize: 18,
-                      ),
-                    ),
+                  ],
+                ),
+                child: Text(
+                  'START GAME',
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    color: Colors.white,
+                    letterSpacing: 2,
                   ),
                 ),
-                const SizedBox(width: 16),
-                GestureDetector(
-                  onTap: _startCustomGame,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(30),
-                      border: Border.all(color: const Color(0xFF00B894).withOpacity(0.5)),
-                    ),
-                    child: Text(
-                      'CUSTOM',
-                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        color: const Color(0xFF55EFC4),
-                        letterSpacing: 2,
-                        fontSize: 18,
-                      ),
-                    ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            GestureDetector(
+              onTap: _startCustomGame,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(30),
+                  border: Border.all(color: Colors.white.withOpacity(0.3)),
+                ),
+                child: Text(
+                  'CUSTOM GAME',
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    color: Colors.white70,
+                    letterSpacing: 2,
                   ),
                 ),
-              ],
+              ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildInstructionRow(IconData icon, String text) {
+    return Row(
+      children: [
+        Icon(icon, color: const Color(0xFFA29BFE), size: 24),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            text,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Colors.white70,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -525,11 +537,11 @@ class _SequenceRecallGameState extends State<SequenceRecallGame>
               child: Column(
                 children: [
                   _buildSettingRow(
-                    'Number of Numbers',
+                    'Sequence Length',
                     _customSequenceLength,
                     (val) => setState(() => _customSequenceLength = val),
-                    3,
-                    10,
+                    2.0,
+                    10.0,
                   ),
                   const SizedBox(height: 24),
                   _buildSettingRow(
@@ -548,6 +560,8 @@ class _SequenceRecallGameState extends State<SequenceRecallGame>
               autofocus: true,
               onKeyEvent: (node, event) {
                 if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.enter) {
+                  _sequenceLength = _customSequenceLength;
+                  _displayDuration = _customDisplayDuration;
                   _startRound();
                   return KeyEventResult.handled;
                 }
@@ -563,12 +577,12 @@ class _SequenceRecallGameState extends State<SequenceRecallGame>
                   padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
-                      colors: [Color(0xFF00B894), Color(0xFF55EFC4)],
+                      colors: [Color(0xFFA29BFE), Color(0xFF6C5CE7)],
                     ),
                     borderRadius: BorderRadius.circular(30),
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFF00B894).withOpacity(0.4),
+                        color: const Color(0xFFA29BFE).withOpacity(0.4),
                         blurRadius: 20,
                         offset: const Offset(0, 8),
                       ),
@@ -606,31 +620,31 @@ class _SequenceRecallGameState extends State<SequenceRecallGame>
             IconButton(
               onPressed: () {
                 if (isDouble) {
-                  if (value > min) onChanged((value as double) - 0.5);
+                  if (value > min) onChanged((value as double) - 0.1);
                 } else {
                   if (value > min) onChanged((value as int) - 1);
                 }
               },
-              icon: const Icon(Icons.remove_circle, color: Color(0xFF55EFC4)),
+              icon: const Icon(Icons.remove_circle, color: Color(0xFFA29BFE)),
             ),
             Expanded(
               child: Text(
                 isDouble ? (value as double).toStringAsFixed(1) : value.toString(),
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  color: const Color(0xFF55EFC4),
+                  color: const Color(0xFFA29BFE),
                 ),
               ),
             ),
             IconButton(
               onPressed: () {
                 if (isDouble) {
-                  if (value < max) onChanged((value as double) + 0.5);
+                  if (value < max) onChanged((value as double) + 0.1);
                 } else {
                   if (value < max) onChanged((value as int) + 1);
                 }
               },
-              icon: const Icon(Icons.add_circle, color: Color(0xFF55EFC4)),
+              icon: const Icon(Icons.add_circle, color: Color(0xFFA29BFE)),
             ),
           ],
         ),
@@ -651,11 +665,11 @@ class _SequenceRecallGameState extends State<SequenceRecallGame>
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: const LinearGradient(
-                  colors: [Color(0xFF00B894), Color(0xFF55EFC4)],
+                  colors: [Color(0xFFA29BFE), Color(0xFF6C5CE7)],
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF00B894).withOpacity(0.4),
+                    color: const Color(0xFFA29BFE).withOpacity(0.4),
                     blurRadius: 30,
                     spreadRadius: 5,
                   ),
@@ -669,7 +683,7 @@ class _SequenceRecallGameState extends State<SequenceRecallGame>
             ),
             const SizedBox(height: 32),
             Text(
-              'Round ${_level}',
+              'Round $_level',
               style: Theme.of(context).textTheme.headlineLarge?.copyWith(
                 color: Colors.white,
               ),
@@ -684,7 +698,7 @@ class _SequenceRecallGameState extends State<SequenceRecallGame>
               ),
               child: Column(
                 children: [
-                  _buildPreviewRow(Icons.format_list_numbered_rounded, 'Sequence Length', '$_sequenceLength'),
+                  _buildPreviewRow(Icons.numbers_rounded, 'Sequence Length', '$_sequenceLength'),
                   const SizedBox(height: 12),
                   _buildPreviewRow(Icons.speed_rounded, 'Display Time', '${_displayDuration.toStringAsFixed(1)}s'),
                 ],
@@ -706,19 +720,19 @@ class _SequenceRecallGameState extends State<SequenceRecallGame>
                   padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
-                      colors: [Color(0xFF00B894), Color(0xFF55EFC4)],
+                      colors: [Color(0xFFA29BFE), Color(0xFF6C5CE7)],
                     ),
                     borderRadius: BorderRadius.circular(30),
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFF00B894).withOpacity(0.4),
+                        color: const Color(0xFFA29BFE).withOpacity(0.4),
                         blurRadius: 20,
                         offset: const Offset(0, 8),
                       ),
                     ],
                   ),
                   child: Text(
-                    'START ROUND',
+                    'START',
                     style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                       color: Colors.white,
                       letterSpacing: 2,
@@ -735,42 +749,21 @@ class _SequenceRecallGameState extends State<SequenceRecallGame>
 
   Widget _buildPreviewRow(IconData icon, String label, String value) {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Row(
-          children: [
-            Icon(icon, color: const Color(0xFF55EFC4), size: 24),
-            const SizedBox(width: 12),
-            Text(
-              label,
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                color: Colors.white70,
-              ),
-            ),
-          ],
+        Icon(icon, color: const Color(0xFFA29BFE), size: 20),
+        const SizedBox(width: 8),
+        Text(
+          '$label: ',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: Colors.white70,
+          ),
         ),
         Text(
           value,
-          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-            color: const Color(0xFF55EFC4),
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: const Color(0xFFA29BFE),
             fontWeight: FontWeight.bold,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildInstructionRow(IconData icon, String text) {
-    return Row(
-      children: [
-        Icon(icon, color: const Color(0xFF55EFC4), size: 24),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            text,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Colors.white70,
-            ),
           ),
         ),
       ],
@@ -781,61 +774,45 @@ class _SequenceRecallGameState extends State<SequenceRecallGame>
     return Column(
       children: [
         Container(
-          margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+          margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           decoration: BoxDecoration(
-            color: const Color(0xFF00B894).withOpacity(0.2),
+            color: const Color(0xFFA29BFE).withOpacity(0.2),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFF00B894).withOpacity(0.4)),
+            border: Border.all(color: const Color(0xFFA29BFE).withOpacity(0.4)),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.info_outline_rounded, color: Color(0xFF55EFC4), size: 20),
+              const Icon(Icons.lightbulb_outline_rounded, color: Color(0xFFA29BFE), size: 20),
               const SizedBox(width: 8),
               Text(
-                'Sequence length: $_sequenceLength',
+                'Memorize the sequence • Enter in REVERSE order',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: const Color(0xFF55EFC4),
+                  color: const Color(0xFFA29BFE),
                   fontWeight: FontWeight.w600,
                 ),
+                textAlign: TextAlign.center,
               ),
             ],
           ),
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-          child: Column(
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'MEMORIZE!',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Colors.white54,
-                      letterSpacing: 2,
-                    ),
-                  ),
-                  Text(
-                    '${_timeRemaining.toStringAsFixed(1)}s',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: _timeRemaining < 0.5 ? Colors.red : Colors.white70,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
+              Text(
+                'MEMORIZE!',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Colors.white54,
+                ),
               ),
-              const SizedBox(height: 8),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: LinearProgressIndicator(
-                  value: _timeRemaining / _displayDuration,
-                  backgroundColor: Colors.white10,
-                  valueColor: AlwaysStoppedAnimation(
-                    _timeRemaining < 0.5 ? Colors.red : const Color(0xFF00B894),
-                  ),
-                  minHeight: 8,
+              Text(
+                '${_timeRemaining.toStringAsFixed(1)}s',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: const Color(0xFFA29BFE),
+                  fontWeight: FontWeight.bold,
                 ),
               ),
             ],
@@ -869,13 +846,13 @@ class _SequenceRecallGameState extends State<SequenceRecallGame>
       height: 80,
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [Color(0xFF00B894), Color(0xFF55EFC4)],
+          colors: [Color(0xFFA29BFE), Color(0xFF6C5CE7)],
         ),
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF00B894).withOpacity(0.3),
-            blurRadius: 15,
+            color: const Color(0xFFA29BFE).withOpacity(0.4),
+            blurRadius: 20,
             spreadRadius: 2,
           ),
         ],
@@ -900,101 +877,91 @@ class _SequenceRecallGameState extends State<SequenceRecallGame>
           margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           decoration: BoxDecoration(
-            color: const Color(0xFFFDCB6E).withOpacity(0.2),
+            color: const Color(0xFFA29BFE).withOpacity(0.2),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFFFDCB6E).withOpacity(0.4)),
+            border: Border.all(color: const Color(0xFFA29BFE).withOpacity(0.4)),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.lightbulb_outline_rounded, color: Color(0xFFFDCB6E), size: 20),
+              const Icon(Icons.swap_horiz_rounded, color: Color(0xFFA29BFE), size: 20),
               const SizedBox(width: 8),
               Text(
-                'Enter the sequence in order',
+                'Enter the sequence in REVERSE order',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: const Color(0xFFFDCB6E),
+                  color: const Color(0xFFA29BFE),
                   fontWeight: FontWeight.w600,
                 ),
+                textAlign: TextAlign.center,
               ),
             ],
           ),
         ),
         const SizedBox(height: 24),
-        Text(
-          'What was the sequence?',
-          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-            color: Colors.white,
-          ),
-        ),
-        const SizedBox(height: 32),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            alignment: WrapAlignment.center,
-            children: List.generate(_sequenceLength, (index) {
-              return SizedBox(
-                width: 70,
-                child: TextField(
-                  controller: _inputControllers[index],
-                  focusNode: _focusNodes[index],
-                  keyboardType: TextInputType.number,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  inputFormatters: [
-                    FilteringTextInputFormatter.digitsOnly,
-                    LengthLimitingTextInputFormatter(1),
-                  ],
-                  decoration: InputDecoration(
-                    hintText: '?',
-                    hintStyle: TextStyle(
-                      color: Colors.white.withOpacity(0.3),
-                      fontSize: 28,
-                    ),
-                    filled: true,
-                    fillColor: Colors.white.withOpacity(0.05),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(
-                        color: _currentInputIndex == index
-                            ? const Color(0xFF00B894)
-                            : Colors.white.withOpacity(0.2),
-                        width: _currentInputIndex == index ? 2 : 1,
-                      ),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(
-                        color: _currentInputIndex == index
-                            ? const Color(0xFF00B894)
-                            : Colors.white.withOpacity(0.2),
-                        width: _currentInputIndex == index ? 2 : 1,
-                      ),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(
-                        color: Color(0xFF00B894),
-                        width: 2,
-                      ),
-                    ),
-                  ),
-                  onChanged: (value) => _onNumberInput(value, index),
-                  onSubmitted: (_) {
-                    // If all fields are filled, submit the answer
-                    if (_playerInput.length == _sequenceLength) {
-                      _submitAnswer();
-                    }
-                  },
+        Wrap(
+          spacing: 16,
+          runSpacing: 16,
+          alignment: WrapAlignment.center,
+          children: List.generate(_sequenceLength, (index) {
+            return SizedBox(
+              width: 70,
+              child: TextField(
+                controller: _inputControllers[index],
+                focusNode: _focusNodes[index],
+                keyboardType: TextInputType.number,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
                 ),
-              );
-            }),
-          ),
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(1),
+                ],
+                decoration: InputDecoration(
+                  hintText: '?',
+                  hintStyle: TextStyle(
+                    color: Colors.white.withOpacity(0.3),
+                    fontSize: 28,
+                  ),
+                  filled: true,
+                  fillColor: Colors.white.withOpacity(0.05),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(
+                      color: _currentInputIndex == index
+                          ? const Color(0xFFA29BFE)
+                          : Colors.white.withOpacity(0.2),
+                      width: _currentInputIndex == index ? 2 : 1,
+                    ),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(
+                      color: _currentInputIndex == index
+                          ? const Color(0xFFA29BFE)
+                          : Colors.white.withOpacity(0.2),
+                      width: _currentInputIndex == index ? 2 : 1,
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(
+                      color: Color(0xFFA29BFE),
+                      width: 2,
+                    ),
+                  ),
+                ),
+                onChanged: (value) => _onNumberInput(value, index),
+                onSubmitted: (_) {
+                  if (_playerInput.length == _sequenceLength) {
+                    _submitAnswer();
+                  }
+                },
+              ),
+            );
+          }),
         ),
         const SizedBox(height: 24),
         Focus(
@@ -1013,7 +980,7 @@ class _SequenceRecallGameState extends State<SequenceRecallGame>
               decoration: BoxDecoration(
                 gradient: _playerInput.length == _sequenceLength
                     ? const LinearGradient(
-                        colors: [Color(0xFF00B894), Color(0xFF55EFC4)],
+                        colors: [Color(0xFFA29BFE), Color(0xFF6C5CE7)],
                       )
                     : null,
                 color: _playerInput.length != _sequenceLength ? Colors.white10 : null,
@@ -1021,7 +988,7 @@ class _SequenceRecallGameState extends State<SequenceRecallGame>
                 boxShadow: _playerInput.length == _sequenceLength
                     ? [
                         BoxShadow(
-                          color: const Color(0xFF00B894).withOpacity(0.4),
+                          color: const Color(0xFFA29BFE).withOpacity(0.4),
                           blurRadius: 20,
                           offset: const Offset(0, 8),
                         ),
@@ -1083,28 +1050,11 @@ class _SequenceRecallGameState extends State<SequenceRecallGame>
             ),
             const SizedBox(height: 24),
             Text(
-              isCorrect ? 'Correct!' : 'Wrong!',
+              isCorrect ? 'Perfect!' : 'Try Again!',
               style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                color: isCorrect ? const Color(0xFF55EFC4) : const Color(0xFFFF6B6B),
+                color: Colors.white,
               ),
             ),
-            const SizedBox(height: 16),
-            Text(
-              'Sequence: ${_sequence.join(" → ")}',
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                color: Colors.white70,
-              ),
-            ),
-            if (isCorrect) ...[
-              const SizedBox(height: 8),
-              Text(
-                '+${(_level * 15) + (_sequenceLength * 10)} points',
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: const Color(0xFFFDCB6E),
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
           ],
         ),
       ),
@@ -1118,62 +1068,35 @@ class _SequenceRecallGameState extends State<SequenceRecallGame>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              width: 120,
-              height: 120,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withOpacity(0.1),
-                border: Border.all(color: Colors.white24, width: 3),
-              ),
-              child: const Icon(
-                Icons.sports_esports_rounded,
-                size: 60,
-                color: Colors.white54,
-              ),
+            const Icon(
+              Icons.sentiment_dissatisfied_rounded,
+              size: 80,
+              color: Colors.white54,
             ),
-            const SizedBox(height: 32),
+            const SizedBox(height: 24),
             Text(
               'Game Over',
-              style: Theme.of(context).textTheme.displayMedium?.copyWith(
+              style: Theme.of(context).textTheme.headlineLarge?.copyWith(
                 color: Colors.white,
               ),
             ),
-            const SizedBox(height: 24),
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.05),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.white10),
-              ),
-              child: Column(
-                children: [
-                  _buildScoreRow('Final Score', '$_score', const Color(0xFFFDCB6E)),
-                  const SizedBox(height: 12),
-                  _buildScoreRow('Level Reached', '$_level', const Color(0xFF00B894)),
-                  const SizedBox(height: 12),
-                  _buildScoreRow('High Score', '$_highScore', const Color(0xFF55EFC4)),
-                ],
+            const SizedBox(height: 16),
+            Text(
+              'Final Score: $_score',
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                color: Colors.white70,
               ),
             ),
-            const SizedBox(height: 40),
+            const SizedBox(height: 32),
             GestureDetector(
               onTap: _startGame,
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
-                    colors: [Color(0xFF00B894), Color(0xFF55EFC4)],
+                    colors: [Color(0xFFA29BFE), Color(0xFF6C5CE7)],
                   ),
                   borderRadius: BorderRadius.circular(30),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF00B894).withOpacity(0.4),
-                      blurRadius: 20,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
                 ),
                 child: Text(
                   'PLAY AGAIN',
@@ -1184,40 +1107,9 @@ class _SequenceRecallGameState extends State<SequenceRecallGame>
                 ),
               ),
             ),
-            const SizedBox(height: 16),
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(
-                'Back to Menu',
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: Colors.white54,
-                ),
-              ),
-            ),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildScoreRow(String label, String value, Color color) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-            color: Colors.white54,
-          ),
-        ),
-        Text(
-          value,
-          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-            color: color,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ],
     );
   }
 }

@@ -4,14 +4,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
-class SpeedNumbersGame extends StatefulWidget {
-  const SpeedNumbersGame({super.key});
+class SimonSaysGame extends StatefulWidget {
+  const SimonSaysGame({super.key});
 
   @override
-  State<SpeedNumbersGame> createState() => _SpeedNumbersGameState();
+  State<SimonSaysGame> createState() => _SimonSaysGameState();
 }
 
-class _SpeedNumbersGameState extends State<SpeedNumbersGame>
+class _SimonSaysGameState extends State<SimonSaysGame>
     with TickerProviderStateMixin {
   GamePhase _phase = GamePhase.ready;
   int _level = 1;
@@ -19,39 +19,40 @@ class _SpeedNumbersGameState extends State<SpeedNumbersGame>
   int _highScore = 0;
   int _lives = 3;
   
-  int _numberCount = 3;
+  int _sequenceLength = 3;
   double _flashDuration = 0.8;
-  double _pauseDuration = 0.3;
+  List<Color> _sequence = [];
+  List<Color> _playerInput = [];
+  int _currentFlashIndex = 0;
+  bool _isShowingSequence = true;
   
   // Custom game settings
   bool _isCustomGame = false;
-  int _customNumberCount = 3;
+  int _customSequenceLength = 3;
   double _customFlashDuration = 0.8;
-  double _customPauseDuration = 0.3;
-  
-  List<int> _numbers = [];
-  int _currentFlashIndex = 0;
-  List<int> _playerInput = [];
-  String _inputValue = '';
   
   Timer? _flashTimer;
   Timer? _pauseTimer;
   
-  late AnimationController _numberFlashController;
+  late AnimationController _colorFlashController;
   late AnimationController _resultController;
-  late Animation<double> _numberFadeAnimation;
-  late Animation<double> _numberScaleAnimation;
+  late Animation<double> _colorScaleAnimation;
   
-  final FocusNode _inputFocusNode = FocusNode();
-  final TextEditingController _textController = TextEditingController();
+  // Color buttons - using distinct, high-contrast colors
+  final List<Color> _colors = [
+    const Color(0xFFFF3B30), // Bright Red
+    const Color(0xFF007AFF), // Bright Blue
+    const Color(0xFFFFCC00), // Bright Yellow
+    const Color(0xFF34C759), // Bright Green
+  ];
 
   @override
   void initState() {
     super.initState();
     _loadProgress();
-    _numberFlashController = AnimationController(
+    _colorFlashController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 500),
+      duration: const Duration(milliseconds: 300),
     );
     
     _resultController = AnimationController(
@@ -59,17 +60,10 @@ class _SpeedNumbersGameState extends State<SpeedNumbersGame>
       duration: const Duration(milliseconds: 800),
     );
     
-    _numberFadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+    _colorScaleAnimation = Tween<double>(begin: 1.0, end: 1.2).animate(
       CurvedAnimation(
-        parent: _numberFlashController,
-        curve: Curves.easeOut,
-      ),
-    );
-    
-    _numberScaleAnimation = Tween<double>(begin: 0.5, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _numberFlashController,
-        curve: Curves.elasticOut,
+        parent: _colorFlashController,
+        curve: Curves.easeInOut,
       ),
     );
   }
@@ -78,31 +72,27 @@ class _SpeedNumbersGameState extends State<SpeedNumbersGame>
   void dispose() {
     _flashTimer?.cancel();
     _pauseTimer?.cancel();
-    _numberFlashController.dispose();
+    _colorFlashController.dispose();
     _resultController.dispose();
-    _inputFocusNode.dispose();
-    _textController.dispose();
     super.dispose();
   }
 
   Future<void> _loadProgress() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _level = prefs.getInt('speed_level') ?? 1;
-      _highScore = prefs.getInt('speed_high_score') ?? 0;
-      _numberCount = prefs.getInt('speed_count') ?? 3;
-      _flashDuration = prefs.getDouble('speed_flash_duration') ?? 0.8;
-      _pauseDuration = prefs.getDouble('speed_pause_duration') ?? 0.3;
+      _level = prefs.getInt('simon_level') ?? 1;
+      _highScore = prefs.getInt('simon_high_score') ?? 0;
+      _sequenceLength = prefs.getInt('simon_length') ?? 3;
+      _flashDuration = prefs.getDouble('simon_flash_duration') ?? 0.8;
     });
   }
 
   Future<void> _saveProgress() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('speed_level', _level);
-    await prefs.setInt('speed_high_score', _highScore);
-    await prefs.setInt('speed_count', _numberCount);
-    await prefs.setDouble('speed_flash_duration', _flashDuration);
-    await prefs.setDouble('speed_pause_duration', _pauseDuration);
+    await prefs.setInt('simon_level', _level);
+    await prefs.setInt('simon_high_score', _highScore);
+    await prefs.setInt('simon_length', _sequenceLength);
+    await prefs.setDouble('simon_flash_duration', _flashDuration);
   }
 
   void _startGame() {
@@ -120,79 +110,72 @@ class _SpeedNumbersGameState extends State<SpeedNumbersGame>
       _phase = GamePhase.customSettings;
       _score = 0;
       _isCustomGame = true;
+      _sequenceLength = _customSequenceLength;
+      _flashDuration = _customFlashDuration;
     });
   }
 
   void _startRound() {
-    _generateNumbers();
+    _generateSequence();
     setState(() {
       _phase = GamePhase.showing;
       _currentFlashIndex = 0;
       _playerInput = [];
-      _inputValue = '';
+      _isShowingSequence = true;
     });
-    _textController.clear();
-    _flashNextNumber();
+    _flashNextColor();
   }
 
-  void _generateNumbers() {
+  void _generateSequence() {
     final random = math.Random();
-    _numbers = List.generate(_numberCount, (_) => random.nextInt(9) + 1);
+    _sequence = [];
+    for (int i = 0; i < _sequenceLength; i++) {
+      _sequence.add(_colors[random.nextInt(_colors.length)]);
+    }
   }
 
-  void _flashNextNumber() {
-    if (_currentFlashIndex >= _numbers.length) {
-      // All numbers flashed, move to guessing phase
+  void _flashNextColor() {
+    if (_currentFlashIndex >= _sequence.length) {
+      // All colors flashed, move to input phase
       setState(() {
         _phase = GamePhase.guessing;
+        _isShowingSequence = false;
       });
-      _inputFocusNode.requestFocus();
       return;
     }
     
-    _numberFlashController.forward(from: 0);
+    _colorFlashController.forward(from: 0);
     
     _flashTimer?.cancel();
     _flashTimer = Timer(Duration(milliseconds: (_flashDuration * 1000).toInt()), () {
-      _numberFlashController.reverse();
+      _colorFlashController.reverse();
       
       _pauseTimer?.cancel();
-      _pauseTimer = Timer(Duration(milliseconds: (_pauseDuration * 1000).toInt()), () {
+      _pauseTimer = Timer(const Duration(milliseconds: 300), () {
         setState(() {
           _currentFlashIndex++;
         });
-        _flashNextNumber();
+        _flashNextColor();
       });
     });
   }
 
-  void _onNumberInput(String value) {
-    if (value.isEmpty) {
-      setState(() => _inputValue = '');
-      return;
-    }
-    
-    // Parse as individual digits
-    final digits = value.split('').map((d) => int.tryParse(d)).whereType<int>().toList();
+  void _onColorTap(Color color) {
+    if (_phase != GamePhase.guessing) return;
     
     setState(() {
-      _inputValue = value;
-      _playerInput = digits;
+      _playerInput.add(color);
     });
-  }
-
-  void _submitAnswer() {
-    if (_inputValue.isEmpty || _playerInput.length != _numbers.length) return;
     
-    _checkAnswer();
+    // Check if sequence is complete
+    if (_playerInput.length == _sequence.length) {
+      _checkAnswer();
+    }
   }
 
   void _checkAnswer() {
-    _flashTimer?.cancel();
-    _pauseTimer?.cancel();
-    
-    bool isCorrect = _playerInput.length == _numbers.length &&
-        _playerInput.asMap().entries.every((entry) => entry.value == _numbers[entry.key]);
+    bool isCorrect = _playerInput.length == _sequence.length &&
+        _playerInput.asMap().entries.every((entry) => entry.value == _sequence[entry.key]);
     
     setState(() {
       if (!isCorrect && !_isCustomGame) {
@@ -207,7 +190,7 @@ class _SpeedNumbersGameState extends State<SpeedNumbersGame>
       }
       
       if (isCorrect) {
-        _score += (_level * 25) + (_numberCount * 15);
+        _score += (_level * 25) + (_sequenceLength * 15);
         if (_score > _highScore) {
           _highScore = _score;
         }
@@ -224,12 +207,9 @@ class _SpeedNumbersGameState extends State<SpeedNumbersGame>
         if (!_isCustomGame) {
           _levelUp();
         } else {
-          // In custom game, just increment level for display but keep settings the same
           _level++;
-          // Reset to custom settings to maintain difficulty
-          _numberCount = _customNumberCount;
+          _sequenceLength = _customSequenceLength;
           _flashDuration = _customFlashDuration;
-          _pauseDuration = _customPauseDuration;
         }
       }
       if (mounted) _startRound();
@@ -238,20 +218,16 @@ class _SpeedNumbersGameState extends State<SpeedNumbersGame>
   }
 
   void _levelUp() {
-    if (_isCustomGame) return; // Don't level up in custom games
+    if (_isCustomGame) return;
     
     _level++;
     
-    if (_level % 2 == 0 && _numberCount < 8) {
-      _numberCount++;
+    if (_level % 2 == 0 && _sequenceLength < 10) {
+      _sequenceLength++;
     }
     
-    if (_level % 3 == 0 && _flashDuration > 0.3) {
+    if (_level % 3 == 0 && _flashDuration > 0.4) {
       _flashDuration -= 0.1;
-    }
-    
-    if (_level % 4 == 0 && _pauseDuration > 0.1) {
-      _pauseDuration -= 0.05;
     }
     
     _saveProgress();
@@ -275,7 +251,38 @@ class _SpeedNumbersGameState extends State<SpeedNumbersGame>
         child: SafeArea(
           child: Column(
             children: [
-              _buildHeader(),
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white70),
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _buildStatChip(Icons.star_rounded, '$_score', const Color(0xFFFDCB6E)),
+                        const SizedBox(width: 12),
+                        _buildStatChip(Icons.trending_up_rounded, 'Lv.$_level', const Color(0xFF00B894)),
+                        if (!_isCustomGame) ...[
+                          const SizedBox(width: 12),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: List.generate(3, (index) => Icon(
+                              index < _lives ? Icons.favorite : Icons.favorite_border,
+                              color: Colors.redAccent,
+                              size: 20,
+                            )),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(width: 48),
+                  ],
+                ),
+              ),
               Expanded(child: _buildGameContent()),
             ],
           ),
@@ -284,57 +291,21 @@ class _SpeedNumbersGameState extends State<SpeedNumbersGame>
     );
   }
 
-  Widget _buildHeader() {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Row(
-        children: [
-          IconButton(
-            onPressed: () => Navigator.pop(context),
-            icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white70),
-          ),
-          Expanded(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _buildStatChip(Icons.star_rounded, '$_score', const Color(0xFFFDCB6E)),
-                const SizedBox(width: 12),
-                _buildStatChip(Icons.trending_up_rounded, 'Lv.$_level', const Color(0xFFFDCB6E)),
-                if (!_isCustomGame) ...[
-                  const SizedBox(width: 12),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: List.generate(3, (index) => Icon(
-                      index < _lives ? Icons.favorite : Icons.favorite_border,
-                      color: Colors.redAccent,
-                      size: 20,
-                    )),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(width: 48),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatChip(IconData icon, String value, Color color) {
+  Widget _buildStatChip(IconData icon, String text, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
+        color: color.withOpacity(0.2),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: color.withOpacity(0.4)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: color, size: 18),
-          const SizedBox(width: 4),
+          Icon(icon, color: color, size: 16),
+          const SizedBox(width: 6),
           Text(
-            value,
+            text,
             style: TextStyle(
               color: color,
               fontWeight: FontWeight.bold,
@@ -378,25 +349,25 @@ class _SpeedNumbersGameState extends State<SpeedNumbersGame>
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: const LinearGradient(
-                  colors: [Color(0xFFFDCB6E), Color(0xFFF9CA24)],
+                  colors: [Color(0xFFE84393), Color(0xFFFD79A8)],
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFFFDCB6E).withOpacity(0.4),
+                    color: const Color(0xFFE84393).withOpacity(0.4),
                     blurRadius: 30,
                     spreadRadius: 5,
                   ),
                 ],
               ),
               child: const Icon(
-                Icons.flash_on_rounded,
+                Icons.color_lens_rounded,
                 size: 60,
                 color: Colors.white,
               ),
             ),
             const SizedBox(height: 32),
             Text(
-              'Speed Numbers',
+              'Simon Says',
               style: Theme.of(context).textTheme.headlineLarge?.copyWith(
                 color: Colors.white,
               ),
@@ -412,18 +383,18 @@ class _SpeedNumbersGameState extends State<SpeedNumbersGame>
               child: Column(
                 children: [
                   _buildInstructionRow(
-                    Icons.flash_on_rounded,
-                    'Numbers will flash quickly on screen',
+                    Icons.color_lens_rounded,
+                    'Watch colors flash in sequence',
                   ),
                   const SizedBox(height: 12),
                   _buildInstructionRow(
-                    Icons.memory_rounded,
-                    'Memorize the sequence as they appear',
+                    Icons.touch_app_rounded,
+                    'Tap the colors in the same order',
                   ),
                   const SizedBox(height: 12),
                   _buildInstructionRow(
                     Icons.speed_rounded,
-                    'Enter the complete sequence in order',
+                    'Sequence gets longer each round',
                   ),
                 ],
               ),
@@ -435,12 +406,12 @@ class _SpeedNumbersGameState extends State<SpeedNumbersGame>
                 padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
-                    colors: [Color(0xFFFDCB6E), Color(0xFFF9CA24)],
+                    colors: [Color(0xFFE84393), Color(0xFFFD79A8)],
                   ),
                   borderRadius: BorderRadius.circular(30),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFFFDCB6E).withOpacity(0.4),
+                      color: const Color(0xFFE84393).withOpacity(0.4),
                       blurRadius: 20,
                       offset: const Offset(0, 8),
                     ),
@@ -483,7 +454,7 @@ class _SpeedNumbersGameState extends State<SpeedNumbersGame>
   Widget _buildInstructionRow(IconData icon, String text) {
     return Row(
       children: [
-        Icon(icon, color: const Color(0xFFF9CA24), size: 24),
+        Icon(icon, color: const Color(0xFFE84393), size: 24),
         const SizedBox(width: 12),
         Expanded(
           child: Text(
@@ -521,28 +492,19 @@ class _SpeedNumbersGameState extends State<SpeedNumbersGame>
               child: Column(
                 children: [
                   _buildSettingRow(
-                    'Number Count',
-                    _customNumberCount,
-                    (val) => setState(() => _customNumberCount = val),
+                    'Sequence Length',
+                    _customSequenceLength,
+                    (val) => setState(() => _customSequenceLength = val),
                     2.0,
-                    10.0,
+                    15.0,
                   ),
                   const SizedBox(height: 24),
                   _buildSettingRow(
                     'Flash Duration (seconds)',
                     _customFlashDuration,
                     (val) => setState(() => _customFlashDuration = val),
-                    0.2,
+                    0.3,
                     2.0,
-                    isDouble: true,
-                  ),
-                  const SizedBox(height: 24),
-                  _buildSettingRow(
-                    'Pause Duration (seconds)',
-                    _customPauseDuration,
-                    (val) => setState(() => _customPauseDuration = val),
-                    0.1,
-                    1.0,
                     isDouble: true,
                   ),
                 ],
@@ -553,9 +515,8 @@ class _SpeedNumbersGameState extends State<SpeedNumbersGame>
               autofocus: true,
               onKeyEvent: (node, event) {
                 if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.enter) {
-                  _numberCount = _customNumberCount;
+                  _sequenceLength = _customSequenceLength;
                   _flashDuration = _customFlashDuration;
-                  _pauseDuration = _customPauseDuration;
                   _startRound();
                   return KeyEventResult.handled;
                 }
@@ -563,21 +524,20 @@ class _SpeedNumbersGameState extends State<SpeedNumbersGame>
               },
               child: GestureDetector(
                 onTap: () {
-                  _numberCount = _customNumberCount;
+                  _sequenceLength = _customSequenceLength;
                   _flashDuration = _customFlashDuration;
-                  _pauseDuration = _customPauseDuration;
                   _startRound();
                 },
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
-                      colors: [Color(0xFFFDCB6E), Color(0xFFF9CA24)],
+                      colors: [Color(0xFFE84393), Color(0xFFFD79A8)],
                     ),
                     borderRadius: BorderRadius.circular(30),
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFFFDCB6E).withOpacity(0.4),
+                        color: const Color(0xFFE84393).withOpacity(0.4),
                         blurRadius: 20,
                         offset: const Offset(0, 8),
                       ),
@@ -620,14 +580,14 @@ class _SpeedNumbersGameState extends State<SpeedNumbersGame>
                   if (value > min) onChanged((value as int) - 1);
                 }
               },
-              icon: const Icon(Icons.remove_circle, color: Color(0xFFFDCB6E)),
+              icon: const Icon(Icons.remove_circle, color: Color(0xFFE84393)),
             ),
             Expanded(
               child: Text(
                 isDouble ? (value as double).toStringAsFixed(1) : value.toString(),
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  color: const Color(0xFFFDCB6E),
+                  color: const Color(0xFFE84393),
                 ),
               ),
             ),
@@ -639,7 +599,7 @@ class _SpeedNumbersGameState extends State<SpeedNumbersGame>
                   if (value < max) onChanged((value as int) + 1);
                 }
               },
-              icon: const Icon(Icons.add_circle, color: Color(0xFFFDCB6E)),
+              icon: const Icon(Icons.add_circle, color: Color(0xFFE84393)),
             ),
           ],
         ),
@@ -654,69 +614,59 @@ class _SpeedNumbersGameState extends State<SpeedNumbersGame>
           margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           decoration: BoxDecoration(
-            color: const Color(0xFFFDCB6E).withOpacity(0.2),
+            color: const Color(0xFFE84393).withOpacity(0.2),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFFFDCB6E).withOpacity(0.4)),
+            border: Border.all(color: const Color(0xFFE84393).withOpacity(0.4)),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.info_outline_rounded, color: Color(0xFFF9CA24), size: 20),
+              const Icon(Icons.visibility_rounded, color: Color(0xFFE84393), size: 20),
               const SizedBox(width: 8),
               Text(
-                'Numbers: $_numberCount • Flash: ${_flashDuration.toStringAsFixed(1)}s',
+                'Watch the sequence • ${_currentFlashIndex + 1}/$_sequenceLength',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: const Color(0xFFF9CA24),
+                  color: const Color(0xFFE84393),
                   fontWeight: FontWeight.w600,
                 ),
+                textAlign: TextAlign.center,
               ),
             ],
           ),
         ),
         Expanded(
           child: Center(
-            child: FadeTransition(
-              opacity: _numberFadeAnimation,
-              child: ScaleTransition(
-                scale: _numberScaleAnimation,
-                child: _currentFlashIndex < _numbers.length
-                    ? _buildFlashingNumber(_numbers[_currentFlashIndex])
-                    : const SizedBox(),
-              ),
+            child: AnimatedBuilder(
+              animation: _colorScaleAnimation,
+              builder: (context, child) {
+                final currentColor = _currentFlashIndex < _sequence.length
+                    ? _sequence[_currentFlashIndex]
+                    : Colors.transparent;
+                return Transform.scale(
+                  scale: _currentFlashIndex < _sequence.length && _colorFlashController.isAnimating
+                      ? _colorScaleAnimation.value
+                      : 1.0,
+                  child: Container(
+                    width: 200,
+                    height: 200,
+                    decoration: BoxDecoration(
+                      color: currentColor,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: currentColor.withOpacity(0.6),
+                          blurRadius: 40,
+                          spreadRadius: 10,
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
             ),
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildFlashingNumber(int number) {
-    return Container(
-      width: 200,
-      height: 200,
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFFDCB6E), Color(0xFFF9CA24)],
-        ),
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFFFDCB6E).withOpacity(0.5),
-            blurRadius: 40,
-            spreadRadius: 10,
-          ),
-        ],
-      ),
-      child: Center(
-        child: Text(
-          '$number',
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 80,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ),
     );
   }
 
@@ -727,110 +677,69 @@ class _SpeedNumbersGameState extends State<SpeedNumbersGame>
           margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           decoration: BoxDecoration(
-            color: const Color(0xFFFDCB6E).withOpacity(0.2),
+            color: const Color(0xFFE84393).withOpacity(0.2),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFFFDCB6E).withOpacity(0.4)),
+            border: Border.all(color: const Color(0xFFE84393).withOpacity(0.4)),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.lightbulb_outline_rounded, color: Color(0xFFF9CA24), size: 20),
+              const Icon(Icons.touch_app_rounded, color: Color(0xFFE84393), size: 20),
               const SizedBox(width: 8),
               Text(
-                'Enter the complete sequence in order',
+                'Tap colors in order • ${_playerInput.length}/$_sequenceLength',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: const Color(0xFFF9CA24),
+                  color: const Color(0xFFE84393),
                   fontWeight: FontWeight.w600,
                 ),
+                textAlign: TextAlign.center,
               ),
             ],
           ),
         ),
-        const SizedBox(height: 32),
-        Text(
-          'What was the sequence?',
-          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-            color: Colors.white,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Enter $_numberCount digits',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: Colors.white54,
-          ),
-        ),
-        const SizedBox(height: 32),
-        // Input field
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 48),
-          child: TextField(
-            controller: _textController,
-            focusNode: _inputFocusNode,
-            keyboardType: TextInputType.number,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 48,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 8,
-            ),
-            inputFormatters: [
-              FilteringTextInputFormatter.digitsOnly,
-              LengthLimitingTextInputFormatter(8),
-            ],
-            decoration: InputDecoration(
-              hintText: '?' * _numberCount,
-              hintStyle: TextStyle(
-                color: Colors.white.withOpacity(0.3),
-                fontSize: 48,
-                letterSpacing: 8,
+        Expanded(
+          child: Center(
+            child: GridView.builder(
+              shrinkWrap: true,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                crossAxisSpacing: 20,
+                mainAxisSpacing: 20,
+                childAspectRatio: 1.0,
               ),
-              filled: true,
-              fillColor: Colors.white.withOpacity(0.05),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: Colors.white.withOpacity(0.2)),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: Colors.white.withOpacity(0.2)),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: const BorderSide(color: Color(0xFFFDCB6E), width: 2),
-              ),
-            ),
-            onChanged: _onNumberInput,
-            onSubmitted: (_) => _submitAnswer(),
-          ),
-        ),
-        const SizedBox(height: 24),
-        // Submit button
-        GestureDetector(
-          onTap: _inputValue.length == _numberCount ? _submitAnswer : null,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
-            decoration: BoxDecoration(
-              gradient: _inputValue.length == _numberCount
-                  ? const LinearGradient(
-                      colors: [Color(0xFFFDCB6E), Color(0xFFF9CA24)],
-                    )
-                  : null,
-              color: _inputValue.length != _numberCount ? Colors.white10 : null,
-              borderRadius: BorderRadius.circular(30),
-            ),
-            child: Text(
-              'SUBMIT',
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                color: _inputValue.length == _numberCount ? Colors.white : Colors.white30,
-                letterSpacing: 2,
-                fontSize: 18,
-              ),
+              itemCount: _colors.length,
+              itemBuilder: (context, index) {
+                final color = _colors[index];
+                final isSelected = _playerInput.contains(color) && 
+                    _playerInput.indexOf(color) < _playerInput.length;
+                return GestureDetector(
+                  onTap: () => _onColorTap(color),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    decoration: BoxDecoration(
+                      color: color,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: isSelected ? Colors.white : Colors.transparent,
+                        width: 4,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: color.withOpacity(0.6),
+                          blurRadius: 20,
+                          spreadRadius: isSelected ? 5 : 0,
+                        ),
+                      ],
+                    ),
+                    child: isSelected
+                        ? const Icon(Icons.check, color: Colors.white, size: 40)
+                        : null,
+                  ),
+                );
+              },
             ),
           ),
         ),
-        const Spacer(),
       ],
     );
   }
@@ -874,28 +783,11 @@ class _SpeedNumbersGameState extends State<SpeedNumbersGame>
             ),
             const SizedBox(height: 24),
             Text(
-              isCorrect ? 'Correct!' : 'Wrong!',
+              isCorrect ? 'Perfect!' : 'Try Again!',
               style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                color: isCorrect ? const Color(0xFF55EFC4) : const Color(0xFFFF6B6B),
+                color: Colors.white,
               ),
             ),
-            const SizedBox(height: 16),
-            Text(
-              'Sequence: ${_numbers.join(" ")}',
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                color: Colors.white70,
-              ),
-            ),
-            if (isCorrect) ...[
-              const SizedBox(height: 8),
-              Text(
-                '+${(_level * 25) + (_numberCount * 15)} points',
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: const Color(0xFFFDCB6E),
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
           ],
         ),
       ),
@@ -909,62 +801,35 @@ class _SpeedNumbersGameState extends State<SpeedNumbersGame>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              width: 120,
-              height: 120,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withOpacity(0.1),
-                border: Border.all(color: Colors.white24, width: 3),
-              ),
-              child: const Icon(
-                Icons.sports_esports_rounded,
-                size: 60,
-                color: Colors.white54,
-              ),
+            const Icon(
+              Icons.sentiment_dissatisfied_rounded,
+              size: 80,
+              color: Colors.white54,
             ),
-            const SizedBox(height: 32),
+            const SizedBox(height: 24),
             Text(
               'Game Over',
-              style: Theme.of(context).textTheme.displayMedium?.copyWith(
+              style: Theme.of(context).textTheme.headlineLarge?.copyWith(
                 color: Colors.white,
               ),
             ),
-            const SizedBox(height: 24),
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.05),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.white10),
-              ),
-              child: Column(
-                children: [
-                  _buildScoreRow('Final Score', '$_score', const Color(0xFFFDCB6E)),
-                  const SizedBox(height: 12),
-                  _buildScoreRow('Level Reached', '$_level', const Color(0xFFFDCB6E)),
-                  const SizedBox(height: 12),
-                  _buildScoreRow('High Score', '$_highScore', const Color(0xFFF9CA24)),
-                ],
+            const SizedBox(height: 16),
+            Text(
+              'Final Score: $_score',
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                color: Colors.white70,
               ),
             ),
-            const SizedBox(height: 40),
+            const SizedBox(height: 32),
             GestureDetector(
               onTap: _startGame,
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
-                    colors: [Color(0xFFFDCB6E), Color(0xFFF9CA24)],
+                    colors: [Color(0xFFE84393), Color(0xFFFD79A8)],
                   ),
                   borderRadius: BorderRadius.circular(30),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFFFDCB6E).withOpacity(0.4),
-                      blurRadius: 20,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
                 ),
                 child: Text(
                   'PLAY AGAIN',
@@ -975,40 +840,9 @@ class _SpeedNumbersGameState extends State<SpeedNumbersGame>
                 ),
               ),
             ),
-            const SizedBox(height: 16),
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(
-                'Back to Menu',
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: Colors.white54,
-                ),
-              ),
-            ),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildScoreRow(String label, String value, Color color) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-            color: Colors.white54,
-          ),
-        ),
-        Text(
-          value,
-          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-            color: color,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ],
     );
   }
 }

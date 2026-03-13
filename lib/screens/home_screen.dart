@@ -6,6 +6,13 @@ import 'missing_number_game.dart';
 import 'sequence_recall_game.dart';
 import 'pattern_match_game.dart';
 import 'speed_numbers_game.dart';
+import 'simon_says_game.dart';
+import 'card_memory_game.dart';
+import 'reverse_sequence_game.dart';
+import 'n_back_game.dart';
+import 'card_counting_game.dart';
+import 'color_block_stacking_game.dart';
+import 'card_matching_game.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -74,6 +81,27 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         break;
       case GameType.speedNumbers:
         screen = const SpeedNumbersGame();
+        break;
+      case GameType.simonSays:
+        screen = const SimonSaysGame();
+        break;
+      case GameType.cardMemory:
+        screen = const CardMemoryGame();
+        break;
+      case GameType.reverseSequence:
+        screen = const ReverseSequenceGame();
+        break;
+      case GameType.nBack:
+        screen = const NBackGame();
+        break;
+      case GameType.cardCounting:
+        screen = const CardCountingGame();
+        break;
+      case GameType.colorBlockStacking:
+        screen = const ColorBlockStackingGame();
+        break;
+      case GameType.cardMatching:
+        screen = const CardMatchingGame();
         break;
     }
 

@@ -17,6 +17,7 @@ class _PatternMatchGameState extends State<PatternMatchGame>
   int _level = 1;
   int _score = 0;
   int _highScore = 0;
+  int _lives = 3;
   
   int _gridSize = 3;
   int _filledCount = 3;
@@ -97,6 +98,7 @@ class _PatternMatchGameState extends State<PatternMatchGame>
     setState(() {
       _phase = GamePhase.ready;
       _score = 0;
+      _lives = 3;
       _isCustomGame = false;
     });
     _startRound();
@@ -197,7 +199,15 @@ class _PatternMatchGameState extends State<PatternMatchGame>
     
     setState(() {
       _answerSubmitted = true; // Show feedback on grid
-      if (isCorrect) {
+      
+      if (!isCorrect && !_isCustomGame) {
+        _lives--;
+        if (_lives <= 0) {
+          _phase = GamePhase.gameOver;
+        } else {
+          _phase = GamePhase.guessing;
+        }
+      } else if (isCorrect) {
         _score += (_level * 20) + (_gridSize * _gridSize * 5);
         if (_score > _highScore) {
           _highScore = _score;
@@ -208,28 +218,34 @@ class _PatternMatchGameState extends State<PatternMatchGame>
         _phase = GamePhase.guessing;
       }
     });
+
+    if (_phase == GamePhase.gameOver) return;
     
     if (isCorrect) {
       // Only show result screen for correct answers
       _resultController.forward(from: 0);
       Future.delayed(const Duration(milliseconds: 1500), () {
-        if (!_isCustomGame) {
-          _levelUp();
-        } else {
-          // In custom game, just increment level for display but keep settings the same
-          _level++;
-          // Reset to custom settings to maintain difficulty
-          _gridSize = _customGridSize;
-          _filledCount = _customFilledCount;
-          _displayDuration = _customDisplayDuration;
+        if (mounted && _phase != GamePhase.gameOver) {
+          if (!_isCustomGame) {
+            _levelUp();
+          } else {
+            // In custom game, just increment level for display but keep settings the same
+            _level++;
+            // Reset to custom settings to maintain difficulty
+            _gridSize = _customGridSize;
+            _filledCount = _customFilledCount;
+            _displayDuration = _customDisplayDuration;
+          }
+          if (mounted) _startRound();
         }
-        _startRound();
       });
     } else {
       // Show feedback on grid for 3 seconds, then restart round
       // Phase stays as guessing so grid remains visible
       Future.delayed(const Duration(milliseconds: 3000), () {
-        _startRound();
+        if (mounted && _phase != GamePhase.gameOver) {
+          _startRound();
+        }
       });
     }
   }
@@ -295,6 +311,17 @@ class _PatternMatchGameState extends State<PatternMatchGame>
                 _buildStatChip(Icons.star_rounded, '$_score', const Color(0xFFFDCB6E)),
                 const SizedBox(width: 12),
                 _buildStatChip(Icons.trending_up_rounded, 'Lv.$_level', const Color(0xFFE17055)),
+                if (!_isCustomGame) ...[
+                  const SizedBox(width: 12),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: List.generate(3, (index) => Icon(
+                      index < _lives ? Icons.favorite : Icons.favorite_border,
+                      color: Colors.redAccent,
+                      size: 20,
+                    )),
+                  ),
+                ],
               ],
             ),
           ),

@@ -18,6 +18,7 @@ class _MissingNumberGameState extends State<MissingNumberGame>
   int _level = 1;
   int _score = 0;
   int _highScore = 0;
+  int _lives = 3;
   int _consecutiveFailures = 0;
   
   // Number display settings
@@ -125,6 +126,7 @@ class _MissingNumberGameState extends State<MissingNumberGame>
     setState(() {
       _phase = GamePhase.ready;
       _score = 0;
+      _lives = 3;
       _consecutiveFailures = 0;
       _isCustomGame = false;
     });
@@ -258,31 +260,48 @@ class _MissingNumberGameState extends State<MissingNumberGame>
         sortedGuesses.every((g) => sortedMissing.contains(g));
     
     setState(() {
-      _phase = isCorrect ? GamePhase.correct : GamePhase.incorrect;
-      if (isCorrect) {
-        _score += (_level * 10) + (_displayDuration * 5).toInt();
-        if (_score > _highScore) {
-          _highScore = _score;
+      if (!isCorrect && !_isCustomGame) {
+        _lives--;
+        if (_lives <= 0) {
+          _phase = GamePhase.gameOver;
+        } else {
+          _phase = GamePhase.incorrect;
+          _consecutiveFailures++;
+          if (_consecutiveFailures >= 2) {
+            _reduceDifficulty();
+            _consecutiveFailures = 0;
+          }
         }
-        _consecutiveFailures = 0; // Reset failures on success
       } else {
-        _consecutiveFailures++;
-        // If failed twice in a row, reduce difficulty
-        if (_consecutiveFailures >= 2) {
-          _reduceDifficulty();
-          _consecutiveFailures = 0; // Reset after reducing difficulty
+        _phase = isCorrect ? GamePhase.correct : GamePhase.incorrect;
+        if (isCorrect) {
+          _score += (_level * 10) + (_displayDuration * 5).toInt();
+          if (_score > _highScore) {
+            _highScore = _score;
+          }
+          _consecutiveFailures = 0; // Reset failures on success
+        } else {
+          _consecutiveFailures++;
+          if (_consecutiveFailures >= 2) {
+            _reduceDifficulty();
+            _consecutiveFailures = 0; // Reset after reducing difficulty
+          }
         }
       }
     });
+    
+    if (_phase == GamePhase.gameOver) return;
     
     _resultController.forward(from: 0);
     
     // Move to next round
     Future.delayed(const Duration(milliseconds: 1500), () {
-      if (isCorrect) {
-        _levelUp();
+      if (mounted && _phase != GamePhase.gameOver) {
+        if (isCorrect) {
+          _levelUp();
+        }
+        if (mounted) _startRound();
       }
-      _startRound();
     });
   }
 
@@ -375,6 +394,17 @@ class _MissingNumberGameState extends State<MissingNumberGame>
                 _buildStatChip(Icons.star_rounded, '$_score', const Color(0xFFFDCB6E)),
                 const SizedBox(width: 12),
                 _buildStatChip(Icons.trending_up_rounded, 'Lv.$_level', const Color(0xFF6C5CE7)),
+                if (!_isCustomGame) ...[
+                  const SizedBox(width: 12),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: List.generate(3, (index) => Icon(
+                      index < _lives ? Icons.favorite : Icons.favorite_border,
+                      color: Colors.redAccent,
+                      size: 20,
+                    )),
+                  ),
+                ],
               ],
             ),
           ),
